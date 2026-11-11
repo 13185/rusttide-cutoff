@@ -40,8 +40,16 @@ await page.waitForTimeout(2500);
 await shot('02-port');
 
 await page.evaluate(() => { window.__game.enemies.clear(); });
-await page.evaluate(() => { const i = window.__game.input; i.adsHeld = true; i.fireHeld = true; });
-await page.waitForFunction(() => window.__rt.state().stats.shots > 3, null, { timeout: 20000 }).catch(() => {});
+await page.evaluate(() => {
+  const g = window.__game; const i = g.input;
+  i.adsHeld = true; i.fireHeld = true;
+  // 软件渲染帧率很低时 dt 被钳在 0.05，墙钟 20s 可能只跑几帧。这里按游戏时间推进以验证连发。
+  for (let n = 0; n < 30; n++) g._step(0.05);
+});
+await page.waitForFunction(() => {
+  const i = window.__game.input; i.adsHeld = true; i.fireHeld = true;
+  return window.__rt.state().stats.shots > 3;
+}, null, { timeout: 8000 }).catch(() => {});
 await page.evaluate(() => { const i = window.__game.input; i.fireHeld = false; });
 s = await st();
 const adsV = await page.evaluate(() => window.__game.weapon.ads);
@@ -108,6 +116,13 @@ s = await st(); ok(s.weapon === 'shotgun', 'mouse wheel cycles weapon');
 await page.waitForFunction(() => !window.__rt.state().switching, null, { timeout: 30000 }).catch(() => {});
 await page.keyboard.press('Digit1');
 await page.waitForFunction(() => { const s = window.__rt.state(); return s.weapon === 'rifle' && !s.switching; }, null, { timeout: 30000 }).catch(() => {});
+
+await page.keyboard.press('KeyQ');
+await page.waitForFunction(() => { const s = window.__rt.state(); return s.weapon === 'shotgun' && !s.switching; }, null, { timeout: 30000 }).catch(() => {});
+s = await st(); ok(s.weapon === 'shotgun', 'KeyQ cycles to shotgun');
+await page.keyboard.press('KeyQ');
+await page.waitForFunction(() => { const s = window.__rt.state(); return s.weapon === 'rifle' && !s.switching; }, null, { timeout: 30000 }).catch(() => {});
+s = await st(); ok(s.weapon === 'rifle', 'KeyQ cycles back to rifle');
 
 // 近战
 const mel = await page.evaluate(() => {

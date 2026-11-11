@@ -57,6 +57,7 @@ export class World {
     this._warehouses();
     this._lamps();
     this._props();
+    this._portLife();
     this._relays();
     this._boat();
     this._distant();
@@ -89,7 +90,26 @@ export class World {
       M_hull: pbr('paint', { color: 0x3c4d58 }), M_cabin: M.white, M_orange: M.orange, M_boat_glass: new THREE.MeshStandardMaterial({ color: 0x0d1216, roughness: 0.05, metalness: 0.9, emissive: 0xffb36a, emissiveIntensity: 0.45 }),
       M_steel: M.steel, M_rubber: M.rubber, M_deck: pbr('steel', { color: 0x777570 }),
       M_relay_cab: pbr('paint', { color: 0x9a9c96 }), M_relay_stripe: M.yellow, M_relay_dark: M.dark, M_concrete: M.concrete, M_dish: M.white,
-      M_lamp_emit: M.amberLamp
+      M_lamp_emit: M.amberLamp,
+      M_yp_wood: pbr('wood', { wet: 0.7, wear: 0.4, env: 0.4 }),
+      M_yp_card: pbr('cardboard', { metal: 0, wet: 0.25, wear: 0.2, env: 0.25 }),
+      M_yp_steel: M.steel,
+      M_yp_paint: pbr('paint', { color: 0x9a9890, wear: 0.6, wet: 0.8, env: 0.5 }),
+      M_yp_rubber: M.rubber,
+      M_yp_conc: M.concrete,
+      M_yp_plas: pbr('polymer', { color: 0x3a5a52, metal: 0, rough: 0.7, wet: 0.4, env: 0.35 }),
+      M_yp_orange: M.orange,
+      M_yp_yellow: M.yellow,
+      M_yp_navy: pbr('paint', { color: 0x2a4a62, wear: 0.55, wet: 0.7, env: 0.45 }),
+      M_yp_red: pbr('paint', { color: 0x8a2424, wear: 0.4, wet: 0.5, env: 0.4 }),
+      M_yp_glass: M.glass,
+      M_yp_dark: M.dark,
+      M_yp_hazard: M.yellow,
+      M_yp_decal: new THREE.MeshStandardMaterial({
+        map: A.tex.decals, normalMap: A.tex.decalsN, normalScale: new THREE.Vector2(0.55, 0.55),
+        roughness: 0.72, metalness: 0.04, envMapIntensity: 0.45, color: 0xffffff, side: THREE.DoubleSide,
+        emissive: new THREE.Color(0xffffff), emissiveMap: A.tex.decals, emissiveIntensity: 0.4
+      })
     };
     this.matFor = (n) => map[n];
   }
@@ -150,14 +170,27 @@ export class World {
     const palette = ['#9a4a2e', '#40647a', '#4d6e56', '#85847c', '#a8692f', '#74393a', '#bdb7a7', '#4f5b68', '#2f4f6e', '#8a2f2a'];
     const cols = palette.map((c) => new THREE.Color(c));
     // 近景：Blender 波纹钢箱（框架/锁杆/板面三种材质）；远景：低模盒体。按相机距离逐帧分配实例
-    const paint = pbr('paint', { wear: 0.9 });
-    const frame = pbr('paint', { wear: 1.0 });
-    const steel = pbr('steel', { color: 0x9a9a9a });
-    const matOf = { M_cont_paint: paint, M_cont_frame: frame, M_cont_steel: steel };
-    const mkLod = (node) => meshParts('containers', node).map((p) => {
-      const im = new THREE.InstancedMesh(p.geometry, matOf[p.mat], 900);
-      im.count = 0; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false; this.root.add(im); this.refl.hidden.push(im); return { im, frame: p.mat === 'M_cont_frame' };
+    const paint = pbr('corten', { wear: 0.85, wet: 1, env: 0.62 });
+    const frame = pbr('corten', { wear: 1.0, wet: 0.8, env: 0.55, color: 0xc8c2b8 });
+    const steel = pbr('steel', { color: 0x8a6a4a, wear: 0.6, wet: 0.5, env: 0.5 });
+    const liner = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.95, metalness: 0, envMapIntensity: 0.12 });
+    const markMat = new THREE.MeshStandardMaterial({
+      map: A.tex.mark, transparent: true, alphaTest: 0.22, depthWrite: false,
+      metalness: 0.08, roughness: 0.65, envMapIntensity: 0.3
     });
+    const matOf = { M_cont_paint: paint, M_cont_frame: frame, M_cont_steel: steel, M_cont_liner: liner };
+    const mkLod = (node) => meshParts('containers', node).map((p) => {
+      const im = new THREE.InstancedMesh(p.geometry, matOf[p.mat] || paint, 900);
+      im.count = 0; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false; this.root.add(im); this.refl.hidden.push(im);
+      return { im, frame: p.mat === 'M_cont_frame', liner: p.mat === 'M_cont_liner' };
+    });
+    const mkMark = (node) => {
+      const parts = meshParts('containers', node);
+      if (!parts.length) return null;
+      const im = new THREE.InstancedMesh(parts[0].geometry, markMat, 400);
+      im.count = 0; im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false; im.renderOrder = 2;
+      this.root.add(im); this.refl.hidden.push(im); return im;
+    };
     const far = (L) => {
       const g = new THREE.BoxGeometry(L, 2.59, 2.44); g.translate(0, 1.295, 0);
       const uv = g.attributes.uv, pos = g.attributes.position, nor = g.attributes.normal;
@@ -172,12 +205,12 @@ export class World {
     // 代理：全部箱子的盒体。shadow = 只投影不着色（主通道零像素开销）；refl = 只在反射通道出现
     const proxy = (L, kind) => {
       const g = new THREE.BoxGeometry(L * 0.985, 2.55, 2.4); g.translate(0, 1.275, 0);
-      const mat = kind === 'shadow' ? new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }) : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.2, map: A.tex.paint.a });
+      const mat = kind === 'shadow' ? new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }) : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0.22, map: (A.tex.corten && A.tex.corten.a) || A.tex.paint.a });
       const im = new THREE.InstancedMesh(g, mat, 900); im.count = 0; im.frustumCulled = false; im.castShadow = kind === 'shadow'; this.root.add(im);
       if (kind === 'refl') { im.visible = false; this.refl.only.push(im); } else this.refl.hidden.push(im);
       return im;
     };
-    this.cont = { near: [mkLod('cont40'), mkLod('cont20')], far: [far(12.19), far(6.06)], shadow: [proxy(12.19, 'shadow'), proxy(6.06, 'shadow')], refl: [proxy(12.19, 'refl'), proxy(6.06, 'refl')], list: [], cols };
+    this.cont = { near: [mkLod('cont40'), mkLod('cont20')], far: [far(12.19), far(6.06)], shadow: [proxy(12.19, 'shadow'), proxy(6.06, 'shadow')], refl: [proxy(12.19, 'refl'), proxy(6.06, 'refl')], marks: [[0,1,2,3].map((v) => mkMark('mark40_' + v)), [0,1,2,3].map((v) => mkMark('mark20_' + v))], list: [], cols };
     const excl = [
       ...RELAYS.map((rl) => ({ x: rl.x, z: rl.z, r: 10 })),
       { x: 61, z: 0, r: 26 } // 仓库
@@ -194,13 +227,15 @@ export class World {
       return false;
     };
     const place = (x, z, long, levels) => {
+      const mark = Math.floor(r() * 4);
+      const yaw = r() < 0.5 ? 0 : Math.PI;
       for (let k = 0; k < levels; k++) {
         const ci = Math.floor(r() * cols.length);
-        const c = cols[ci].clone().multiplyScalar(0.85 + r() * 0.3);
+        const c = cols[ci].clone().multiplyScalar(0.82 + r() * 0.22);
         const m = new THREE.Matrix4();
-        _q.setFromEuler(new THREE.Euler(0, (r() < 0.5 ? 0 : Math.PI) + (r() - 0.5) * 0.012, 0));
-        m.compose(_p.set(x + (r() - 0.5) * 0.18, k * 2.6, z + (r() - 0.5) * 0.08), _q, _s.set(1, 1, 1));
-        this.cont.list.push({ m, c, long: long ? 0 : 1, x, z, y: k * 2.6 + 1.3 });
+        _q.setFromEuler(new THREE.Euler(0, yaw, 0));
+        m.compose(_p.set(x, k * 2.591, z), _q, _s.set(1, 1, 1));
+        this.cont.list.push({ m, c, long: long ? 0 : 1, x, z, y: k * 2.591 + 1.295, mark, yaw });
       }
     };
     for (let z = -34; z < 100; z += 9.2) {
@@ -218,7 +253,7 @@ export class World {
             const lv2 = Math.max(1, lv - (r() < 0.5 ? 1 : 0));
             place((x0 + x1) / 2, z - 1.23, long, lv);
             place((x0 + x1) / 2, z + 1.23, long, lv2);
-            this.addBox(x0, x1, z0, z1, Math.max(lv, lv2) * 2.6);
+            this.addBox(x0, x1, z0, z1, Math.max(lv, lv2) * 2.591);
           }
           x += side * (L + gap);
         }
@@ -237,7 +272,9 @@ export class World {
     const cnt = [[0, 0], [0, 0]];
     for (const set of C.near) for (const p of set) p.im.count = 0;
     C.far[0].count = 0; C.far[1].count = 0;
+    for (const set of C.marks) for (const im of set) if (im) im.count = 0;
     const fc = new THREE.Color();
+    const white = new THREE.Color(0xffffff);
     for (const it of C.list) {
       const dx = it.x - cam.x, dy = it.y - cam.y, dz = it.z - cam.z;
       const dd = dx * dx + dy * dy * 0.5 + dz * dz;
@@ -249,14 +286,16 @@ export class World {
         for (const p of C.near[it.long]) {
           const i = p.im.count++;
           p.im.setMatrixAt(i, it.m);
-          p.im.setColorAt(i, p.frame ? fc.copy(it.c).multiplyScalar(0.78) : it.c);
+          p.im.setColorAt(i, p.liner ? white : (p.frame ? fc.copy(it.c).multiplyScalar(0.78) : it.c));
         }
+        const mk = C.marks[it.long][it.mark];
+        if (mk) { const i = mk.count++; mk.setMatrixAt(i, it.m); }
       } else {
         const im = C.far[it.long]; const i = im.count++;
         im.setMatrixAt(i, it.m); im.setColorAt(i, it.c);
       }
     }
-    for (const im of [...C.near.flat().map((p) => p.im), ...C.far]) {
+    for (const im of [...C.near.flat().map((p) => p.im), ...C.far, ...C.marks.flat().filter(Boolean)]) {
       im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
   }
@@ -305,7 +344,7 @@ export class World {
       this.addBox(cx - w / 2 - 0.3, cx - w / 2 + 0.3, cz - d * 0.2, cz + d * 0.2, h, h * 0.65);
       this.addBox(cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2, h + 0.4, h);
       // 标识牌
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(9, 2.2), new THREE.MeshStandardMaterial({ map: TX.signTexture(['三号货栈', '冷链 · 散货 · 危险品隔离'], { w: 512, h: 128, size: 48 }), roughness: 0.6 }));
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(9, 2.2), new THREE.MeshStandardMaterial({ map: TX.signTexture(['三号货栈 · 乍浦港区', '冷链 · 散货 · 危险品隔离'], { w: 512, h: 128, size: 44 }), roughness: 0.6 }));
       sign.position.set(cx - w / 2 - 0.25, h * 0.84, cz); sign.rotation.y = -Math.PI / 2; this.root.add(sign);
       // 室内灯
       this._lampGlow(cx, h - 0.5, cz, 0xffd9a0, 3, true, 0.5);
@@ -364,20 +403,7 @@ export class World {
       this.addBox(x - hx, x + hx, z - hz, z + hz, 0.95);
     });
     this.root.add(bm);
-    // 锥桶
-    const cone = new THREE.ConeGeometry(0.22, 0.7, 10);
-    for (let i = 0; i < 18; i++) {
-      const m = new THREE.Mesh(cone, this.mat.orange);
-      m.position.set((r() < 0.5 ? -1 : 1) * (3.4 + r() * 1.4), 0.35, -50 + r() * 120); m.castShadow = true; this.root.add(m);
-    }
-    // 托盘与木箱
-    const crate = new THREE.MeshStandardMaterial({ color: 0x6b5236, roughness: 0.85, map: TX.noiseTexture('#6b5236', 33, false), normalMap: A.tex.polymer.n });
-    const crates = [[-30, 41], [-37, 34], [41, 5], [47, -1], [-27, -47], [-33, -53], [33, -57], [3.8, 64], [-4, 20], [14, -30]];
-    for (const [x, z] of crates) {
-      const sz = 1.1 + r() * 0.3;
-      const m = new THREE.Mesh(new THREE.BoxGeometry(sz, sz, sz), crate); m.position.set(x, sz / 2, z); m.rotation.y = r(); m.castShadow = m.receiveShadow = true; this.root.add(m);
-      this.addBox(x - sz * 0.6, x + sz * 0.6, z - sz * 0.6, z + sz * 0.6, sz);
-    }
+    // 锥桶 / 托盘 / 木箱等改由 _portLife 实例化原创小道具
     // 围栏（南端边界）
     const fence = new BeamSet(this.mat.steel, 200);
     for (let x = -118; x <= 118; x += 4) fence.box(x, 1.4, 106, 0.08, 2.8, 0.08);
@@ -397,7 +423,235 @@ export class World {
     };
     sg(['禁止通行', '作业区 · 机械巡检中'], -4.4, 58, 0.5, '#c8302a', '#f2ece0');
     sg(['码头前沿', '小心落水'], 4.4, -38, -0.3, '#d9a531', '#14110d');
-    sg(['限速 15', '堆场内道路'], -4.4, 10, 0.4, '#e8e4da', '#14110d');
+    sg(['限速 15', '乍浦港区道路'], -4.4, 10, 0.4, '#e8e4da', '#14110d');
+  }
+
+
+  _instParts(node, items, box = null) {
+    const parts = meshParts('yardprops', node);
+    if (!parts.length || !items.length) return [];
+    const ims = parts.map((p) => {
+      const im = new THREE.InstancedMesh(p.geometry, this.matFor(p.mat) || this.mat.steel, items.length);
+      im.count = items.length; im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false;
+      this.root.add(im); this.refl.hidden.push(im); return im;
+    });
+    items.forEach((it, i) => {
+      const x = it[0], z = it[1], ry = it[2] || 0, y = it[3] || 0;
+      _q.setFromEuler(new THREE.Euler(0, ry, 0));
+      _m.compose(_p.set(x, y, z), _q, _s.set(1, 1, 1));
+      for (const im of ims) im.setMatrixAt(i, _m);
+      if (box) {
+        const c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
+        const hx = box[0] * c + box[1] * s, hz = box[0] * s + box[1] * c;
+        this.addBox(x - hx, x + hx, z - hz, z + hz, box[2], box[3] || 0);
+      }
+    });
+    ims.forEach((im) => { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); });
+    return ims;
+  }
+  _put(node, x, z, ry = 0, y = 0) {
+    const g = instance('yardprops', node, this.matFor);
+    g.position.set(x, y, z); g.rotation.y = ry; this.root.add(g);
+    return g;
+  }
+
+
+  _bannerMap(row) {
+    const t = A.tex.decals.clone();
+    t.repeat.set(1, 256 / 2048);
+    t.offset.set(0, 1 - (row + 1) * 256 / 2048);
+    t.needsUpdate = true;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    return t;
+  }
+  _hangBanner(row, x, z, ry, poles = true) {
+    const map = this._bannerMap(row);
+    const mat = new THREE.MeshStandardMaterial({
+      map, roughness: 0.7, metalness: 0.02, side: THREE.DoubleSide,
+      envMapIntensity: 0.45, color: 0xffffff,
+      emissive: new THREE.Color(0xffffff), emissiveMap: map, emissiveIntensity: 0.5
+    });
+    const geo = new THREE.PlaneGeometry(5.2, 0.82, 16, 4);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const u = pos.getX(i) / 5.2 + 0.5;
+      const sag = (1 - Math.cos((u - 0.5) * Math.PI)) * 0.12;
+      pos.setZ(i, pos.getZ(i) - sag * 0.4);
+      pos.setY(i, pos.getY(i) - sag);
+    }
+    pos.needsUpdate = true; geo.computeVertexNormals();
+    const g = new THREE.Group();
+    const cloth = new THREE.Mesh(geo, mat);
+    cloth.position.y = 2.45; cloth.castShadow = true; g.add(cloth);
+    if (poles) {
+      const poleM = this.mat.steel;
+      for (const sx of [-2.68, 2.68]) {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 3.2, 8), poleM);
+        pole.position.set(sx, 1.6, 0.04); pole.castShadow = true; g.add(pole);
+        const ropeM = this.mat.rubber;
+        for (const y of [2.8, 2.1]) {
+          const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.28, 6), ropeM);
+          rope.position.set(sx * 0.98, y, -0.04); rope.rotation.x = 0.6; g.add(rope);
+        }
+      }
+    }
+    g.position.set(x, 0, z); g.rotation.y = ry; this.root.add(g);
+    return g;
+  }
+
+  _portLife() {
+    const r = mulberry(77);
+    // —— 岗亭（入口西侧，面向主通道）+ 吉利达铁皮牌
+    const booth = this._put('booth', -8.4, 100.2, Math.PI / 2);
+    this.addBox(-9.7, -7.1, 99.0, 101.4, 2.5);
+    const plate = this._put('plate', 0, 0, 0);
+    plate.position.set(0, 1.85, 1.22); plate.scale.x = -1; booth.add(plate);
+    const plateS = this._put('plate_s', -8.4, 98.6, Math.PI / 2, 1.35);
+    // 招工横幅 1：岗亭旁，略侧向主路，不挡通道
+    this._hangBanner(0, -5.8, 101.6, Math.PI / 2, true);
+    this.addBox(-6.1, -5.5, 98.9, 104.3, 0.2);
+    // 招工横幅 2：横向通道转角
+    this._hangBanner(1, -7.6, 21.5, Math.PI / 2 + 0.15, true);
+    this.addBox(-10.3, -4.9, 21.2, 21.8, 0.2);
+    // 招工横幅 3：三号货栈南墙外侧（无杆，贴墙，面向堆场）
+    this._hangBanner(2, 58, -17.35, Math.PI, false);
+
+    // —— 华晨达装卸角（仓库西门外北侧，不堵卷帘门）
+    const navy = pbr('paint', { wear: 0.55, wet: 0.85, env: 0.5, color: 0x1a3d5c });
+    const frameN = pbr('corten', { wear: 0.9, wet: 0.7, env: 0.5, color: 0xb8c4c8 });
+    const liner = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.95, metalness: 0 });
+    const matC = { M_cont_paint: navy, M_cont_frame: frameN, M_cont_steel: this.mat.steel, M_cont_liner: liner };
+    const placeHcd = (x, z, yaw) => {
+      const g = new THREE.Group();
+      for (const p of meshParts('containers', 'cont40')) {
+        const mesh = new THREE.Mesh(p.geometry, matC[p.mat] || navy);
+        mesh.castShadow = mesh.receiveShadow = true; g.add(mesh);
+      }
+      const side = instance('yardprops', 'hcd_side', this.matFor);
+      side.position.set(0.2, 1.35, 1.23); side.rotation.y = Math.PI; side.scale.x = -1; g.add(side);
+      const side2 = instance('yardprops', 'hcd_side', this.matFor);
+      side2.position.set(0.2, 1.35, -1.23); side2.scale.x = -1; g.add(side2);
+      side.traverse((o) => { if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.side = THREE.FrontSide; } });
+      side2.traverse((o) => { if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.side = THREE.FrontSide; } });
+      const door = instance('yardprops', 'hcd_door', this.matFor);
+      door.position.set(6.12, 1.3, 0); g.add(door);
+      g.position.set(x, 0, z); g.rotation.y = yaw; this.root.add(g);
+      const c = Math.abs(Math.cos(yaw)), s = Math.abs(Math.sin(yaw));
+      const hx = 6.2 * c + 1.3 * s, hz = 6.2 * s + 1.3 * c;
+      this.addBox(x - hx, x + hx, z - hz, z + hz, 2.6);
+    };
+    placeHcd(42.0, 10.2, 0);
+    placeHcd(42.0, 12.95, 0);
+
+    // 货垛：托盘 + 木箱/纸箱（华晨达唛头）+ 叉车刚卸/待运
+    this._instParts('pallet_stack', [[47.2, 12.4, 0.1], [48.5, 13.3, 1.4]], [0.7, 0.6, 0.75]);
+    this._instParts('pallet', [[47.3, 11.2, 0.2], [48.6, 11.3, 0], [46.2, 12.6, 0.4], [10.4, 36.2, 0], [11.6, 36.4, 0.2], [-28.5, 40.2, 0], [3.6, 63.5, 0.1], [44, 4.2, 0], [-4.2, 19.5, 0]], [0.65, 0.55, 0.16]);
+    const crates = [[47.2, 12.4, 0, 0.75], [47.2, 12.4, 0.05, 1.35], [48.5, 13.3, 0.2, 0.75], [48.4, 13.2, 0, 1.35], [46.3, 12.5, 0.3, 0.15]];
+    this._instParts('crate', crates, [0.5, 0.4, 0.6]);
+    crates.forEach(([x, z, ry, y]) => {
+      const d = instance('yardprops', 'hcd_crate', this.matFor);
+      d.position.set(x, (y || 0) + 0.4, z + (Math.cos(ry) * 0.36));
+      d.rotation.y = ry; this.root.add(d);
+    });
+    this._instParts('carton', [[46.4, 11.4, 0.2, 0], [46.4, 11.4, 0.1, 0.4], [46.9, 11.5, 0.4, 0], [47.8, 11.15, 0, 0.15], [45.6, 12.8, 0.2]], [0.35, 0.25, 0.4]);
+    // 叉车：货叉朝向货垛
+    this._put('forklift', 47.0, 8.4, 0.08);
+    this.addBox(45.9, 48.1, 6.6, 10.4, 2.2);
+    this._put('forklift', 10.8, 33.6, 0.15);
+    this.addBox(9.6, 12.0, 31.8, 35.6, 2.2);
+    this._put('forklift', 54.8, 8.6, -Math.PI / 2); // 仓库门外侧
+    this.addBox(52.9, 56.8, 7.5, 9.8, 2.2);
+
+    // 厢货（华晨达），停在仓库南侧，不挡门
+    const truck = this._put('truck', 52.5, -13.5, Math.PI / 2);
+    this.addBox(49.2, 55.8, -14.8, -12.2, 2.6);
+    const td = instance('yardprops', 'hcd_truck', this.matFor);
+    td.position.set(1.16, 1.45, 1.15); truck.add(td);
+    const td2 = instance('yardprops', 'hcd_truck', this.matFor);
+    td2.position.set(-1.16, 1.45, 1.15); td2.rotation.y = Math.PI; truck.add(td2);
+
+    // 指示牌
+    this._put('sign_hcd_a', 6.4, 21.0, -Math.PI / 2);
+    this.addBox(6.2, 6.6, 20.8, 21.2, 2.1);
+    this._put('sign_hcd_b', 6.4, -22.0, 0.15);
+    this.addBox(6.2, 6.6, -22.2, -21.8, 2.1);
+
+    // —— 巷道与维修区道具（成组，避开主通道 |x|<5.3）
+    this._instParts('cone', [
+      [3.7, 52, 0], [4.0, 50.2, 0.2], [3.6, 48.5, 0], [3.9, -14.5, 0], [4.1, -16, 0.1],
+      [-3.8, 51, 0], [-3.7, -13.8, 0], [8.6, -46, 0], [-15.5, -43, 0], [47.6, 9.2, 0.2],
+      [46.8, 7.4, 0], [8.8, 36, 0], [12.6, 36.8, 0.3], [-8.8, 82.5, 0], [-8.6, 86.5, 0.2],
+      [50.4, -15.5, 0], [54.8, -15.2, 0.1], [3.8, 22, 0], [-7.2, 24, 0.2]
+    ], [0.22, 0.22, 0.75]);
+    this._instParts('impact', [[4.5, 46.5, 0], [-4.4, 46.8, 0], [9.2, -48, 0.1], [48, 6.5, 0], [-16, 50, 0]], [0.35, 0.35, 1.0]);
+    this._instParts('bollard', [[5.0, 58, 0], [-5.0, 58, 0], [5.0, -36, 0], [-5.0, -36, 0], [50.2, -10, 0], [50.2, 8, 0]], [0.18, 0.18, 0.9]);
+    this._instParts('drum', [[-29.5, 39.2, 0.2], [-29.0, 40.0, 0], [44.2, 5.1, 0.4], [12.2, 37.4, 0], [45.4, 13.6, 0.3], [70.2, -12.4, 0]], [0.35, 0.35, 0.9]);
+    this._instParts('drum_plas', [[-30.2, 39.8, 0.1], [44.8, 4.4, 0], [70.8, -12.4, 0.2], [55.6, 12.5, 0]], [0.35, 0.35, 0.9]);
+    this._instParts('ibc', [[45.5, 14.6, 0.1], [-31.2, 38.6, 0.2], [70.4, -10.6, 0], [13.4, 37.6, 0.15]], [0.65, 0.55, 1.2]);
+    this._instParts('reel', [[-32, 41, 0.4], [14.6, -31, 0], [49, 15.5, 0.2]], [0.7, 0.55, 1.2]);
+    this._instParts('tire', [[11.2, 32.2, 0], [11.2, 32.2, 0, 0.45], [11.2, 32.2, 0.2, 0.9], [49.6, 7.2, 0], [-8.2, 81.5, 0]], [0.4, 0.4, 0.7]);
+    this._instParts('jack', [[46.0, 10.2, 0.6], [11.0, 35.0, -0.2], [55.2, 11.2, 1.2]], [0.4, 0.8, 0.5]);
+    this._instParts('dumpster', [[-12.2, 100.5, 0.2], [72, -16.5, 0], [-40, 46, 0.3]], [0.9, 0.55, 1.15]);
+    this._instParts('planks', [[48.8, 14.8, 0.3], [-27.8, 41.5, 0.5], [13.8, 35.2, 0]], [0.7, 0.3, 0.45]);
+    this._instParts('block', [[-6.8, 86.8, 0.2], [50.6, 9.6, 0], [-16.5, 49, 0.1]], [0.45, 0.25, 0.6]);
+    this._instParts('firebox', [[-8.6, 80.6, Math.PI / 2, 0], [50.3, -8, Math.PI / 2, 0], [5.2, -36, 0, 0]], [0.4, 0.2, 1.0]);
+    this._instParts('pallet_worn', [[-4.2, 18.8, 0.3], [14.2, -30.5, 0.1], [-33, -52, 0]], [0.65, 0.55, 0.16]);
+
+    // 铁丝网围出西侧一小块禁行/堆料区
+    this._instParts('fence', [
+      [-16.5, 50, Math.PI / 2], [-16.5, 52.4, Math.PI / 2], [-16.5, 54.8, Math.PI / 2],
+      [-13.0, 56.0, 0], [-10.6, 56.0, 0],
+      [-9.2, 53.6, Math.PI / 2], [-9.2, 51.2, Math.PI / 2]
+    ], [1.3, 0.12, 2.05]);
+
+    // 冷藏箱机组：部分落地 40ft 箱端部（不挂华晨达那两只）
+    const reefItems = [];
+    for (const it of this.cont.list) {
+      if (it.long !== 0 || it.y > 1.6) continue;
+      if (Math.abs(it.x - 36.2) < 8 && Math.abs(it.z - 12.6) < 5) continue;
+      if (Math.abs(it.x) < 8) continue;
+      if (r() > 0.18) continue;
+      const dir = Math.cos(it.yaw || 0);
+      reefItems.push([it.x + dir * 6.32, it.z, it.yaw || 0, it.y - 1.295]);
+      if (reefItems.length >= 10) break;
+    }
+    this._instParts('reefer', reefItems, [1.2, 0.35, 2.2]);
+
+    // —— 仓库内部（已有西侧卷帘门可进入）
+    const racks = [[69.5, -10, Math.PI / 2], [69.5, 0, Math.PI / 2], [69.5, 10, Math.PI / 2],
+      [57, 15.2, 0], [63, 15.2, 0], [57, -15.2, Math.PI], [63, -15.2, Math.PI]];
+    this._instParts('rack', racks, [1.3, 0.55, 3.2]);
+    this._put('bench', 53.5, -14.2, 0.1);
+    this.addBox(52.5, 54.5, -14.7, -13.7, 1.0);
+    this._instParts('pipes', [[68, -8, 0, 8.6], [68, 6, 0.2, 8.6], [55, 14.8, Math.PI / 2, 8.4]], null);
+    this._instParts('elecbox', [[70.6, -14, -Math.PI / 2, 1.2], [70.6, 14, -Math.PI / 2, 1.2]], [0.3, 0.15, 1.2]);
+    this._instParts('pallet_stack', [[54, 13.5, 0.2], [66, -12, 0.4]], [0.7, 0.6, 0.75]);
+    this._instParts('ibc', [[66.5, 12.8, 0.1], [54.2, -12.6, 0]], [0.65, 0.55, 1.2]);
+    this._instParts('drum', [[55.2, -13.4, 0], [55.8, -13.1, 0.3], [66.8, 11.8, 0.2]], [0.35, 0.35, 0.9]);
+    this._instParts('carton', [[54.4, 12.6, 0.2, 0], [54.4, 12.6, 0, 0.4], [65.5, -11.2, 0.3]], [0.35, 0.25, 0.4]);
+    // 室内叉车
+    this._put('forklift', 58.5, 4.2, -0.4);
+    this.addBox(57.3, 59.7, 2.4, 6.2, 2.2);
+
+    // 大门射入的体积光与尘雾
+    const spot = new THREE.SpotLight(0xffe0b0, 48, 28, 0.55, 0.65, 1.15);
+    spot.position.set(48.5, 7.2, 0); spot.target.position.set(62, 0.4, 0);
+    this.root.add(spot); this.root.add(spot.target);
+    const volGeo = new THREE.CylinderGeometry(0.5, 6.5, 20, 24, 1, true);
+    const volMat = new THREE.MeshBasicMaterial({
+      color: 0xffe2b8, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide, fog: true
+    });
+    const vol = new THREE.Mesh(volGeo, volMat);
+    vol.position.set(60, 4.2, 0); vol.rotation.z = Math.PI / 2;
+    this.root.add(vol); this.refl.hidden.push(vol);
+    const dust = new THREE.Mesh(new THREE.PlaneGeometry(14, 8), new THREE.MeshBasicMaterial({
+      color: 0xe8d2a8, transparent: true, opacity: 0.045, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide, fog: true
+    }));
+    dust.position.set(58, 3.2, 0); dust.rotation.y = Math.PI / 2;
+    this.root.add(dust); this.refl.hidden.push(dust);
   }
 
   _relays() {

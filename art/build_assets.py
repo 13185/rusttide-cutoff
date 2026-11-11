@@ -14,6 +14,8 @@ SEGS = [2]
 def mat(name, col=(0.5, 0.5, 0.5), metal=0.0, rough=0.6):
     if name in MATS: return MATS[name]
     m = bpy.data.materials.new(name); m.use_nodes = True
+    m.blend_method = 'OPAQUE'
+    if hasattr(m, 'use_backface_culling'): m.use_backface_culling = True
     b = m.node_tree.nodes.get('Principled BSDF')
     b.inputs['Base Color'].default_value = (*col, 1); b.inputs['Metallic'].default_value = metal; b.inputs['Roughness'].default_value = rough
     MATS[name] = m; return m
@@ -115,6 +117,7 @@ def finalize(root_objs, scale=1.0):
         if o.type == 'MESH': box_uv_and_wear(o, scale)
 
 def export(path, objs):
+    if path in ('rifle.glb', 'shotgun.glb'): path = path.replace('.glb', '_legacy.glb')
     bpy.ops.object.select_all(action='DESELECT')
     for o in objs:
         o.select_set(True)
@@ -433,89 +436,249 @@ def build_grenade():
     export('grenade.glb', [root])
 
 # ----------------------------------------------------------------- 集装箱
-def corrugated_panel(name, L, H, pitch, depth, m, x=0, y=0, z=0, axis='X'):
-    """沿 axis 方向展开的梯形波纹板（真几何）"""
+def corrugated_panel(name, L, H, pitch, depth, m, x=0, y=0, z=0, axis='X', outward=1, thick=0.012):
+    """沿 axis 展开的梯形波纹板。outward=+1/-1 为外凸方向（不用负缩放，避免法线翻转）。
+    挤出 thick 形成有厚度的壳体，法线朝外。"""
     me = bpy.data.meshes.new(name); bm = bmesh.new()
-    n = int(L / pitch); prof = []
+    n = max(2, int(round(L / pitch))); pitch = L / n
+    prof = []
     for i in range(n):
         u0 = -L / 2 + i * pitch
-        prof += [(u0, 0), (u0 + pitch * 0.18, depth), (u0 + pitch * 0.5, depth), (u0 + pitch * 0.68, 0)]
+        prof += [(u0, 0), (u0 + pitch * 0.18, depth), (u0 + pitch * 0.52, depth), (u0 + pitch * 0.70, 0)]
     prof.append((L / 2, 0))
-    bot, top = [], []
-    for (u, d) in prof:
+    def vert(u, d, zc, inset=0.0):
+        off = d * outward - inset * outward
         if axis == 'X':
-            bot.append(bm.verts.new((u, d, -H / 2))); top.append(bm.verts.new((u, d, H / 2)))
-        else:
-            bot.append(bm.verts.new((d, u, -H / 2))); top.append(bm.verts.new((d, u, H / 2)))
+            return bm.verts.new((u, off, zc))
+        return bm.verts.new((off, u, zc))
+    outer_b, outer_t, inner_b, inner_t = [], [], [], []
+    for (u, d) in prof:
+        outer_b.append(vert(u, d, -H / 2, 0)); outer_t.append(vert(u, d,  H / 2, 0))
+        inner_b.append(vert(u, d, -H / 2, thick)); inner_t.append(vert(u, d,  H / 2, thick))
+    def quad(a, b, c, d):
+        try: bm.faces.new((a, b, c, d))
+        except: pass
     for i in range(len(prof) - 1):
-        bm.faces.new((bot[i], bot[i + 1], top[i + 1], top[i]))
+        if outward > 0:
+            quad(outer_b[i], outer_b[i + 1], outer_t[i + 1], outer_t[i])
+            quad(inner_b[i + 1], inner_b[i], inner_t[i], inner_t[i + 1])
+        else:
+            quad(outer_b[i + 1], outer_b[i], outer_t[i], outer_t[i + 1])
+            quad(inner_b[i], inner_b[i + 1], inner_t[i + 1], inner_t[i])
+    if outward > 0:
+        quad(outer_b[0], outer_t[0], inner_t[0], inner_b[0])
+        quad(outer_t[-1], outer_b[-1], inner_b[-1], inner_t[-1])
+        for i in range(len(prof) - 1):
+            quad(outer_t[i], outer_t[i + 1], inner_t[i + 1], inner_t[i])
+            quad(outer_b[i + 1], outer_b[i], inner_b[i], inner_b[i + 1])
+    else:
+        quad(outer_t[0], outer_b[0], inner_b[0], inner_t[0])
+        quad(outer_b[-1], outer_t[-1], inner_t[-1], inner_b[-1])
+        for i in range(len(prof) - 1):
+            quad(outer_t[i + 1], outer_t[i], inner_t[i], inner_t[i + 1])
+            quad(outer_b[i], outer_b[i + 1], inner_b[i + 1], inner_b[i])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.to_mesh(me); bm.free()
-    o = bpy.data.objects.new(name, me); bpy.context.collection.objects.link(o); o.location = (x, y, z)
-    o.data.materials.append(m)
+    o = bpy.data.objects.new(name, me); bpy.context.collection.objects.link(o)
+    o.location = (x, y, z); o.data.materials.append(m)
     return o
 
-def build_container(L, name):
-    W, H = 2.44, 2.59
-    paint = mat('M_cont_paint', (0.6, 0.6, 0.6), 0.25, 0.55)
-    frame = mat('M_cont_frame', (0.55, 0.55, 0.55), 0.3, 0.6)
-    steel = mat('M_cont_steel', (0.2, 0.2, 0.2), 0.8, 0.45)
+def _corner_casting(name, loc, m, sx, sy, sz):
+    """ISO 角件近似：178×162×118 mm 量级的空心角件，开长圆孔。"""
     P = []
-    # 角柱、上下梁
+    cx, cy, cz = loc
+    P.append(box(name + '_b', (0.178, 0.162, 0.118), loc, m, 0.004))
+    # 三向孔：用内缩凹槽表示（不走 Boolean，避免 headless 不稳）
+    P.append(box(name + '_hx', (0.12, 0.055, 0.045), (cx + sx * 0.04, cy, cz), m))
+    P.append(box(name + '_hy', (0.055, 0.11, 0.045), (cx, cy + sy * 0.03, cz), m))
+    P.append(box(name + '_hz', (0.055, 0.045, 0.09), (cx, cy, cz + sz * 0.02), m))
+    return P
+
+def _door_marks(L, W, H, variant, m):
+    """门板与侧板上的原创箱号/船司贴纸（UV 映射到图集对应格）。不使用真实船东商标。"""
+    dx = L / 2 - 0.018
+    # atlas 2×2
+    col, row = variant % 2, variant // 2
+    u0, v0, u1, v1 = col * 0.5 + 0.02, row * 0.5 + 0.02, col * 0.5 + 0.48, row * 0.5 + 0.48
+    objs = []
+    def plane(name, size, loc, rot, uv):
+        # size = (width along local X after rot, height along local Z)
+        o = box(name, (size[0], 0.004, size[1]), loc, m, 0.0, rot=rot)
+        # rewrite UVs to atlas cell (box_uv will be overwritten in finalize; we tag and fix later)
+        o['uv_cell'] = uv
+        return o
+    # 右门公司标志（箱门朝 +X）
+    objs.append(plane('logo', (0.55, 0.55), (dx + 0.025, 0.38, 0.35), (0, 0, 0), (u0, v0 + 0.18, u1, v1)))
+    # 左门箱号
+    objs.append(plane('code', (0.7, 0.18), (dx + 0.025, -0.4, 0.55), (0, 0, 0), (u0, v0, u1, v0 + 0.16)))
+    # 侧面「乍浦港区」模板字（+Y 侧）
+    objs.append(plane('side', (1.2, 0.22), (0.8, W / 2 - 0.01, 0.7), (0, 0, math.radians(90)), (u0, v0 + 0.16, u1, v0 + 0.28)))
+    return objs
+
+def _apply_mark_uv(o):
+    cell = o.get('uv_cell')
+    if not cell: return
+    u0, v0, u1, v1 = cell
+    me = o.data; bm = bmesh.new(); bm.from_mesh(me)
+    uvl = bm.loops.layers.uv.verify()
+    # project the largest face pair onto the cell
+    for f in bm.faces:
+        xs = [l.vert.co.x for l in f.loops]; ys = [l.vert.co.y for l in f.loops]; zs = [l.vert.co.z for l in f.loops]
+        # use the two largest extents
+        for l in f.loops:
+            p = l.vert.co
+            # local box originally size around origin; after transform_apply, use face-local AABB
+            pass
+    # simpler: each decal is a thin box; take the face with largest area whose normal is outward
+    areas = [(f.calc_area(), f) for f in bm.faces]
+    areas.sort(key=lambda x: x[0], reverse=True)
+    # map both big faces (front and back of thin box)
+    for _, f in areas[:2]:
+        n = f.normal
+        ax = 0 if abs(n.x) > 0.5 else (1 if abs(n.y) > 0.5 else 2)
+        pts = [l.vert.co for l in f.loops]
+        if ax == 0:
+            a = [p.y for p in pts]; b = [p.z for p in pts]
+        elif ax == 1:
+            a = [p.x for p in pts]; b = [p.z for p in pts]
+        else:
+            a = [p.x for p in pts]; b = [p.y for p in pts]
+        amin, amax, bmin, bmax = min(a), max(a), min(b), max(b)
+        for l, p in zip(f.loops, pts):
+            aa = p.y if ax == 0 else p.x
+            bb = p.z if ax != 2 else p.y
+            uu = u0 + (aa - amin) / max(1e-6, amax - amin) * (u1 - u0)
+            vv = v0 + (bb - bmin) / max(1e-6, bmax - bmin) * (v1 - v0)
+            l[uvl].uv = (uu, vv)
+    bm.to_mesh(me); bm.free()
+
+def _fix_outward_normals(o):
+    """把法线翻成远离物体包围盒中心（壳体向外）。波纹谷底仍大致朝外。"""
+    mw = o.matrix_world.copy()
+    me = o.data; bm = bmesh.new(); bm.from_mesh(me)
+    bm.transform(mw); bm.normal_update()
+    pts = [v.co for v in bm.verts]
+    if not pts: bm.free(); return
+    c = sum(pts, Vector((0, 0, 0))) / len(pts)
+    flipped = 0
+    for f in bm.faces:
+        mid = f.calc_center_median()
+        if f.normal.dot(mid - c) < 0:
+            f.normal_flip(); flipped += 1
+    bm.normal_update()
+    # transform back
+    inv = mw.inverted()
+    bm.transform(inv)
+    bm.to_mesh(me); bm.free(); me.update()
+    if flipped:
+        print('flipped', o.name, flipped)
+
+def build_container(L, name, mark_variant=0):
+    W, H = 2.438, 2.591  # ISO 标准宽 / 8'6" 高
+    paint = mat('M_cont_paint', (0.62, 0.62, 0.6), 0.18, 0.62)
+    frame = mat('M_cont_frame', (0.45, 0.42, 0.38), 0.35, 0.55)
+    steel = mat('M_cont_steel', (0.22, 0.18, 0.14), 0.7, 0.48)
+    mark = mat('M_cont_mark', (1, 1, 1), 0.0, 0.55)
+    P, marks = [], []
+    # 角柱、上下梁（略粗，更接近实物）
     for sx in (-1, 1):
         for sy in (-1, 1):
-            P.append(box('post', (0.16, 0.16, H - 0.2), (sx * (L / 2 - 0.08), sy * (W / 2 - 0.08), 0), frame, 0.01))
+            P.append(box('post', (0.15, 0.15, H - 0.24), (sx * (L / 2 - 0.075), sy * (W / 2 - 0.075), 0), frame, 0.008))
             for sz in (-1, 1):
-                P.append(box('cast', (0.18, 0.18, 0.12), (sx * (L / 2 - 0.09), sy * (W / 2 - 0.09), sz * (H / 2 - 0.06)), steel))
+                P += _corner_casting('cast', (sx * (L / 2 - 0.09), sy * (W / 2 - 0.082), sz * (H / 2 - 0.059)), steel, sx, sy, sz)
     for sy in (-1, 1):
         for sz in (-1, 1):
-            P.append(box('rail', (L - 0.36, 0.12, 0.16 if sz < 0 else 0.1), (0, sy * (W / 2 - 0.06), sz * (H / 2 - (0.08 if sz < 0 else 0.05))), frame, 0.008))
+            P.append(box('rail', (L - 0.36, 0.13, 0.15 if sz < 0 else 0.11), (0, sy * (W / 2 - 0.065), sz * (H / 2 - (0.075 if sz < 0 else 0.055))), frame, 0.006))
     for sx in (-1, 1):
-        P.append(box('endrail_t', (0.12, W - 0.36, 0.1), (sx * (L / 2 - 0.06), 0, H / 2 - 0.05), frame, 0.008))
-        P.append(box('endrail_b', (0.12, W - 0.36, 0.16), (sx * (L / 2 - 0.06), 0, -H / 2 + 0.08), frame, 0.008))
-    # 侧板（真实波纹）
+        P.append(box('endrail_t', (0.13, W - 0.36, 0.11), (sx * (L / 2 - 0.065), 0, H / 2 - 0.055), frame, 0.006))
+        P.append(box('endrail_b', (0.13, W - 0.36, 0.15), (sx * (L / 2 - 0.065), 0, -H / 2 + 0.075), frame, 0.006))
+    # 侧板：两侧都外凸，带厚度
     for sy in (-1, 1):
-        o = corrugated_panel('side', L - 0.36, H - 0.26, 0.278, 0.036, paint, 0, sy * (W / 2 - 0.05), 0, 'X')
-        if sy < 0: o.scale.y = -1
-        P.append(o)
-    # 顶板（浅凹槽）
-    P.append(box('roof', (L - 0.3, W - 0.3, 0.03), (0, 0, H / 2 - 0.02), paint))
-    for i in range(int(L / 1.2)):
-        P.append(box('roofrib', (0.05, W - 0.36, 0.012), (-L / 2 + 0.6 + i * 1.2, 0, H / 2 - 0.002), paint))
-    # 前端板（波纹，竖向）
-    P.append(corrugated_panel('front', W - 0.36, H - 0.26, 0.3, 0.03, paint, -L / 2 + 0.05, 0, 0, 'Y'))
-    # 门端：双开门 + 4 根锁杆 + 把手 + 铰链 + 门封
-    dx = L / 2 - 0.04
-    for sy in (-1, 1):
-        P.append(box('door', (0.04, W / 2 - 0.2, H - 0.3), (dx, sy * (W / 4 - 0.02), 0), paint, 0.006))
-        for k in range(4):
-            P.append(box('drib', (0.02, W / 2 - 0.26, 0.05), (dx + 0.025, sy * (W / 4 - 0.02), -0.9 + k * 0.6), paint, 0.004))
-    for i, yy in enumerate((-0.86, -0.36, 0.36, 0.86)):
-        P.append(cyl('lockbar', 0.022, H - 0.22, (dx + 0.06, yy, 0), steel, verts=6))
-        for zz in (-1.15, 1.15):
-            P.append(box('keeper', (0.06, 0.07, 0.07), (dx + 0.06, yy, zz), steel))
-        P.append(box('handle', (0.03, 0.04, 0.32), (dx + 0.1, yy + 0.06, -0.2), steel))
-        P.append(box('hbrkt', (0.05, 0.04, 0.06), (dx + 0.075, yy, -0.2), steel))
-    for sy in (-1, 1):
-        for zz in (-0.95, -0.3, 0.3, 0.95):
-            P.append(cyl('hinge', 0.03, 0.12, (dx + 0.03, sy * (W / 2 - 0.12), zz), steel, verts=6))
-    # 叉槽（仅 20 尺）
+        P.append(corrugated_panel('side', L - 0.34, H - 0.28, 0.28, 0.035, paint,
+                                  0, sy * (W / 2 - 0.07), 0, 'X', outward=sy, thick=0.014))
+    # 顶板 + 纵向顶梁（浅槽）
+    P.append(box('roof', (L - 0.28, W - 0.28, 0.028), (0, 0, H / 2 - 0.02), paint))
+    for i in range(int(L / 1.15)):
+        P.append(box('roofrib', (0.06, W - 0.34, 0.014), (-L / 2 + 0.55 + i * 1.15, 0, H / 2 - 0.004), paint))
+    # 底板 + 横梁 + 叉槽
+    P.append(box('floor', (L - 0.28, W - 0.28, 0.03), (0, 0, -H / 2 + 0.085), frame, 0.002))
+    for i in range(int(L / 0.7)):
+        P.append(box('xmem', (0.08, W - 0.32, 0.08), (-L / 2 + 0.4 + i * 0.7, 0, -H / 2 + 0.05), steel))
     if L < 8:
         for sx in (-1, 1):
-            for sy in (-1, 1):
-                P.append(box('fork', (0.36, 0.02, 0.12), (sx * 0.9, sy * (W / 2 - 0.0), -H / 2 + 0.1), steel))
-    o = join(P, name)
-    # 让原点在箱底中心（three: y 向上）
-    for v in o.data.vertices: v.co.z += H / 2
-    return o
+            P.append(box('fork', (0.36, W - 0.2, 0.12), (sx * 0.91, 0, -H / 2 + 0.11), steel, 0.004))
+    # 前端（封闭端）竖向波纹
+    P.append(corrugated_panel('front', W - 0.34, H - 0.28, 0.28, 0.03, paint,
+                              -L / 2 + 0.07, 0, 0, 'Y', outward=-1, thick=0.014))
+    # 内衬：略小的封闭壳，法线向内，从缝隙里看到的是暗舱而不是天空
+    liner = box('liner', (L - 0.22, W - 0.22, H - 0.22), (0, 0, 0), mat('M_cont_liner', (0.07, 0.07, 0.07), 0.0, 0.9), 0.0)
+    # 翻转内衬法线（朝内）——稍后单独处理
+    liner['inward'] = 1
+    P.append(liner)
+    # 门端：对开箱门 + 锁杆/凸轮/铰链/门封条
+    dx = L / 2 - 0.035
+    for sy in (-1, 1):
+        P.append(box('door', (0.036, W / 2 - 0.16, H - 0.28), (dx, sy * (W / 4 - 0.01), 0), paint, 0.004))
+        P.append(box('gasket', (0.01, W / 2 - 0.18, H - 0.32), (dx - 0.02, sy * (W / 4 - 0.01), 0), frame))
+        for k in range(5):
+            P.append(box(f'drib{k}', (0.016, W / 2 - 0.22, 0.045), (dx + 0.022, sy * (W / 4 - 0.01), -0.95 + k * 0.48), paint, 0.003))
+    for i, yy in enumerate((-0.84, -0.34, 0.34, 0.84)):
+        P.append(cyl('lockbar', 0.024, H - 0.26, (dx + 0.055, yy, 0), steel, verts=8, bevel=0.002))
+        for zz in (-1.12, 1.12):
+            P.append(box('cam', (0.07, 0.08, 0.08), (dx + 0.055, yy, zz), steel, 0.004))
+        P.append(box('handle', (0.035, 0.045, 0.34), (dx + 0.1, yy + 0.05, -0.15), steel, 0.004))
+        P.append(box('hbrkt', (0.055, 0.05, 0.07), (dx + 0.07, yy, -0.15), steel, 0.003))
+    for sy in (-1, 1):
+        for zz in (-0.95, -0.3, 0.3, 0.95):
+            P.append(cyl('hinge', 0.032, 0.13, (dx + 0.02, sy * (W / 2 - 0.13), zz), steel, verts=8, bevel=0.003))
+    # 门缝中立柱
+    P.append(box('mullion', (0.03, 0.04, H - 0.3), (dx, 0, 0), frame, 0.002))
+    marks = _door_marks(L, W, H, mark_variant, mark)
+    body = join(P, name)
+    # 原点在箱底中心（three: y 向上）
+    for v in body.data.vertices: v.co.z += H / 2
+    _fix_outward_normals(body)
+    # 内衬朝内：再翻一次名为 liner 的部分已经并进 body，用材质 M_cont_liner 区分
+    # 整体 _fix_outward_normals 会把内衬也朝外，需要把 liner 材质面再翻回去
+    me = body.data; bm = bmesh.new(); bm.from_mesh(me)
+    # find liner material index
+    li = next((i for i, m in enumerate(body.data.materials) if m and m.name == 'M_cont_liner'), None)
+    if li is not None:
+        for f in bm.faces:
+            if f.material_index == li:
+                f.normal_flip()
+        bm.to_mesh(me)
+    bm.free(); me.update()
+    # 贴纸是独立物体，随箱一起升高
+    for o in marks:
+        o.location.z += H / 2
+        _apply_mark_uv(o)
+    return body, marks
 
 def build_containers():
     reset(); SEGS[0] = 1
-    a = build_container(12.19, 'cont40'); finalize([a], 0.5)
+    paint_mark = mat('M_cont_mark', (1, 1, 1), 0.0, 0.55)
+    a, ma0 = build_container(12.192, 'cont40', 0)
     a.location = (0, 0, 0)
-    b = build_container(6.06, 'cont20'); finalize([b], 0.5)
+    for o in ma0:
+        bpy.data.objects.remove(o, do_unlink=True)
+    b, mb0 = build_container(6.058, 'cont20', 0)
     b.location = (0, 6, 0)
-    export('containers.glb', [a, b]); SEGS[0] = 2
+    for o in mb0:
+        bpy.data.objects.remove(o, do_unlink=True)
+    marks = []
+    H40, H20, W = 2.591, 2.591, 2.438
+    for v in range(4):
+        mk = _door_marks(12.192, W, H40, v, paint_mark)
+        for o in mk:
+            o.location.z += H40 / 2; _apply_mark_uv(o)
+        j = join(mk, f'mark40_{v}'); marks.append(j)
+        mk = _door_marks(6.058, W, H20, v, paint_mark)
+        for o in mk:
+            o.location.y += 6; o.location.z += H20 / 2; _apply_mark_uv(o)
+        j = join(mk, f'mark20_{v}'); marks.append(j)
+    finalize([a, b], 0.45)
+    export('containers.glb', [a, b] + marks); SEGS[0] = 2
 
 # ----------------------------------------------------------------- 起重机
 def truss(name, a, b, w, h, seg, m, t=0.12, diag=True):
@@ -847,6 +1010,10 @@ def build_enemies():
     export('enemies.glb', [hound, gull, ward])
 
 ALL = dict(rifle=build_rifle, shotgun=build_shotgun, grenade=build_grenade, containers=build_containers, cranes=build_cranes, props=build_boat_relay_props, enemies=build_enemies)
-args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else list(ALL)
-for a in args: ALL[a]()
-print('ALL DONE')
+# rifle / shotgun 已改为第三方 CC BY 模型改装（art/gun_convert.py）；这里保留原创旧枪构建函数供对照（rifle_legacy / shotgun_legacy）。
+ALL['rifle_legacy'] = ALL.pop('rifle'); ALL['shotgun_legacy'] = ALL.pop('shotgun')
+DEFAULT = [k for k in ALL if not k.endswith('_legacy')]
+if __name__ == '__main__':
+    args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else DEFAULT
+    for a in args: ALL[a]()
+    print('ALL DONE')

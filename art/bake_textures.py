@@ -157,3 +157,93 @@ steel('gunmetal', 1024, 37, (0.09, 0.09, 0.095), 0.34, 0.85)
 polymer('polymer', 512, 41, (0.5, 0.5, 0.5))
 concrete('concrete', 2048, 53)
 puddle_mask(512, 59)
+
+def corten(name, S, seed):
+    """集装箱专用：更重的剥漆、沿槽流锈、盐雾白斑、擦伤。中性底色供实例着色。"""
+    rng = np.random.default_rng(seed)
+    base = fbm(S, 4, 6, rng)
+    micro = fbm(S, 64, 3, rng)
+    chipN = fbm(S, 16, 5, rng)
+    chips = ss(0.68, 0.74, chipN * 0.85 + micro * 0.15)
+    rustSrc = np.clip(chips * ss(0.45, 0.7, fbm(S, 5, 3, rng)) + ss(0.72, 0.85, fbm(S, 8, 3, rng)) * 0.35, 0, 1)
+    streakN = fbm(S, 80, 3, rng, aniso=28)
+    dots = (rng.random((S, S)) > 0.9997).astype(float)
+    dots = np.maximum(dots, np.roll(dots, 1, 1))
+    rustStreak = np.clip(smear_down(np.maximum(rustSrc * 0.8, dots), 0.9972) * ss(0.25, 0.75, streakN) * 1.25, 0, 0.9)
+    rain = ss(0.4, 0.88, fbm(S, 140, 3, rng, aniso=36))
+    grime = ss(0.35, 0.8, fbm(S, 3, 4, rng)) * 0.55
+    salt = ss(0.78, 0.9, fbm(S, 40, 3, rng)) * 0.45
+    scratch = np.zeros((S, S))
+    for _ in range(220):
+        x, y = rng.random(2) * S; a = rng.random() * np.pi; L = 8 + rng.random() * 90
+        t = np.linspace(0, L, int(L))
+        xs = ((x + np.cos(a) * t) % S).astype(int); ys = ((y + np.sin(a) * t) % S).astype(int)
+        scratch[ys, xs] = np.maximum(scratch[ys, xs], 0.3 + rng.random() * 0.5)
+    paintC = col((0.76, 0.75, 0.72)) * (0.84 + base[..., None] * 0.22 + micro[..., None] * 0.05)
+    primer = col((0.38, 0.22, 0.12))
+    rustC = col((0.36, 0.14, 0.055)) * (0.65 + micro[..., None] * 0.7)
+    alb = paintC * (1 - rain[..., None] * 0.16) * (1 - grime[..., None] * 0.4)
+    alb = alb * (1 - rustStreak[..., None]) + rustC * rustStreak[..., None]
+    alb = alb * (1 - chips[..., None]) + (primer * (1 - rustSrc[..., None]) + rustC * rustSrc[..., None]) * chips[..., None]
+    alb = alb + scratch[..., None] * col((0.15, 0.15, 0.14)) * 0.35
+    alb = alb * (1 - salt[..., None] * 0.2) + col((0.82, 0.82, 0.78)) * salt[..., None] * 0.35
+    h = base * 0.35 + micro * 0.28 - chips * 1.0 + rustStreak * 0.35 * micro - scratch * 0.25
+    nrm = normal_from_height(h, 7.0 * S / 1024)
+    rough = 0.50 + base * 0.12 + micro * 0.07 + chips * 0.28 + rustStreak * 0.22 - rain * 0.18 + grime * 0.1 - salt * 0.05
+    metal = 0.16 * (1 - chips) + chips * (0.55 * (1 - rustSrc))
+    wear = fbm(S, 20, 4, rng)
+    orm = np.stack([wear, rough, metal], -1)
+    save(name, alb, nrm, orm)
+
+def container_marks(path, S=2048):
+    """2×2 图集：虚构船司标志 + 箱号 + 乍浦港区模板，带透明通道。"""
+    from PIL import ImageDraw, ImageFont, ImageFilter
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(im)
+    try:
+        fontB = ImageFont.truetype('/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc', 92)
+        fontS = ImageFont.truetype('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc', 48)
+        fontM = ImageFont.truetype('/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc', 64)
+        fontC = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 56)
+        fontCS = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 40)
+    except Exception:
+        fontB = fontS = fontM = fontC = fontCS = ImageFont.load_default()
+    cells = [
+        dict(logo='乍潮', en='ZHACHAO LINE', code='ZCLU 258173 4', port='乍浦港区', badge=(0.15, 0.32, 0.42)),
+        dict(logo='潮运', en='TIDE HAUL', code='TDHU 419226 1', port='乍浦港区', badge=(0.45, 0.18, 0.14)),
+        dict(logo='浦航', en='PUHANG SHIPPING', code='PHSU 863054 7', port='乍浦港区', badge=(0.12, 0.28, 0.22)),
+        dict(logo='七泊', en='BERTH SEVEN', code='BT7U 102938 6', port='乍浦港区', badge=(0.10, 0.16, 0.28)),
+    ]
+    cell = S // 2
+    rng = np.random.default_rng(9)
+    for i, c in enumerate(cells):
+        x0, y0 = (i % 2) * cell, (i // 2) * cell
+        layer = Image.new('RGBA', (cell, cell), (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer)
+        col = tuple(int(v * 255) for v in c['badge']) + (230,)
+        # 徽章块
+        d.rounded_rectangle((80, 80, cell - 80, 420), radius=18, outline=col, width=10)
+        d.rectangle((80, 80, cell - 80, 200), fill=col)
+        # 中文名
+        tw = d.textlength(c['logo'], font=fontB)
+        d.text(((cell - tw) / 2, 100), c['logo'], font=fontB, fill=(245, 242, 235, 255))
+        tw = d.textlength(c['en'], font=fontCS)
+        d.text(((cell - tw) / 2, 250), c['en'], font=fontCS, fill=col)
+        # 箱号
+        d.rectangle((90, 460, cell - 90, 560), outline=(230, 230, 220, 220), width=4)
+        tw = d.textlength(c['code'], font=fontC)
+        d.text(((cell - tw) / 2, 478), c['code'], font=fontC, fill=(235, 232, 220, 255))
+        # 港名模板
+        tw = d.textlength(c['port'], font=fontM)
+        d.text(((cell - tw) / 2, 620), c['port'], font=fontM, fill=(230, 228, 220, 200))
+        # CSC / 重量框（虚构）
+        d.rectangle((90, 740, 420, 960), outline=(200, 200, 190, 200), width=3)
+        d.text((110, 760), 'MAX GROSS 30480 KG', font=fontS, fill=(210, 210, 200, 220))
+        d.text((110, 820), 'TARE 2180 KG', font=fontS, fill=(210, 210, 200, 220))
+        d.text((110, 880), 'CSC 2024/ZP', font=fontS, fill=(210, 210, 200, 220))
+        im.paste(layer, (x0, y0), layer)
+    im.save(path)
+    print('baked container marks', path)
+
+if __name__ == '__main__' or True:
+    pass

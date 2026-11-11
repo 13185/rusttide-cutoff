@@ -3,3 +3,4 @@ ref/
 .DS_Store
 test-results/
 *.blend1
+staging/

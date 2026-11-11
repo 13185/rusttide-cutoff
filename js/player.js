@@ -28,7 +28,7 @@ export class Player {
   update(dt, inCover, ads) {
     if (!this.alive) return { foot: false };
     const look = this.input.consumeLook();
-    const sens = this.input.sensitivity * (ads > 0.5 ? 0.55 : 1);
+    const sens = this.input.sensitivity * (1 - ads * 0.45);
     this.yaw -= look.x * sens; this.pitch -= look.y * sens;
     this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch));
     const k = this.input.keys;
@@ -38,7 +38,7 @@ export class Player {
     const sp = this.crouch ? 2.4 : this.sprint ? 7.6 : ads > 0.5 ? 3.2 : 5.0;
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const wx = ax.x * cy + ax.z * sy, wz = -ax.x * sy + ax.z * cy;
-    const accel = this.grounded ? 14 : 3;
+    const accel = this.grounded ? 11 : 3;
     this.vel.x = damp(this.vel.x, wx * sp, accel, dt); this.vel.z = damp(this.vel.z, wz * sp, accel, dt);
     if (this.grounded && k.Space) { this.vel.y = 5.6; this.grounded = false; }
     this.vel.y -= 18 * dt;
@@ -56,8 +56,10 @@ export class Player {
     if (this.sinceHurt > 4 && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + dt * (inCover ? 12 : 4));
     this.speed = Math.hypot(this.vel.x, this.vel.z);
     this.landed = Math.max(0, this.landed - dt);
-    const bob = this.grounded ? Math.sin(this.stepT * Math.PI * 2) * 0.035 * Math.min(1, this.speed / 5) * (1 - ads * 0.8) : 0;
-    this.camera.position.set(this.position.x, this.position.y + this.eye + bob - this.landed * 0.3, this.position.z);
+    const bobT = this.grounded ? Math.sin(this.stepT * Math.PI * 2) * 0.028 * Math.min(1, this.speed / 5) * (1 - ads * 0.8) : 0;
+    this.bobY = damp(this.bobY || 0, bobT, 16, dt);
+    this.landS = damp(this.landS || 0, this.landed > 0 ? 0.14 : 0, 14, dt);
+    this.camera.position.set(this.position.x, this.position.y + this.eye + this.bobY - this.landS, this.position.z);
     this.camera.rotation.order = 'YXZ'; this.camera.rotation.set(this.pitch, this.yaw, 0);
     let foot = false;
     if (this.grounded && this.speed > 1) { this.stepT += dt * (this.sprint ? 2.4 : 1.7) * Math.min(1.3, this.speed / 4); if (this.stepT >= 1) { this.stepT -= 1; foot = true; } }

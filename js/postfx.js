@@ -15,9 +15,8 @@ uniform sampler2D tDiffuse;
 uniform float threshold;
 void main() {
   vec3 c = texture2D(tDiffuse, vUv).rgb;
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   vec3 s = max(c - threshold, 0.0);
-  gl_FragColor = vec4(s * 1.15, 1.0);
+  gl_FragColor = vec4(s * 0.85, 1.0);
 }`;
 
 const BLUR = `
@@ -26,7 +25,7 @@ uniform sampler2D tDiffuse;
 uniform vec2 direction;
 uniform vec2 resolution;
 void main() {
-  vec2 off = direction / resolution;
+  vec2 off = direction / resolution * 1.35;
   vec3 sum = texture2D(tDiffuse, vUv).rgb * 0.227027;
   sum += texture2D(tDiffuse, vUv + off * 1.3846).rgb * 0.316216;
   sum += texture2D(tDiffuse, vUv - off * 1.3846).rgb * 0.316216;
@@ -50,6 +49,7 @@ uniform vec3 lift;
 uniform vec3 gain;
 uniform float contrast;
 uniform float saturation;
+uniform vec2 resolution;
 
 vec3 aces(vec3 x) {
   const float a = 2.51;
@@ -60,8 +60,30 @@ vec3 aces(vec3 x) {
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+vec3 fxaa(sampler2D tex, vec2 uv) {
+  vec2 px = 1.0 / resolution;
+  vec3 rgbN = texture2D(tex, uv + vec2(0.0, px.y)).rgb;
+  vec3 rgbS = texture2D(tex, uv - vec2(0.0, px.y)).rgb;
+  vec3 rgbE = texture2D(tex, uv + vec2(px.x, 0.0)).rgb;
+  vec3 rgbW = texture2D(tex, uv - vec2(px.x, 0.0)).rgb;
+  vec3 rgbM = texture2D(tex, uv).rgb;
+  float lM = luma(rgbM), lN = luma(rgbN), lS = luma(rgbS), lE = luma(rgbE), lW = luma(rgbW);
+  float lMin = min(lM, min(min(lN, lS), min(lE, lW)));
+  float lMax = max(lM, max(max(lN, lS), max(lE, lW)));
+  if (lMax - lMin < 0.08) return rgbM;
+  vec2 dir = vec2((lN + lS) - (lE + lW), (lE + lW) - (lN + lS));
+  float dirR = inversesqrt(max(dot(dir, dir), 1e-5));
+  dir *= dirR * px;
+  vec3 c1 = 0.5 * (texture2D(tex, uv + dir).rgb + texture2D(tex, uv - dir).rgb);
+  vec3 c2 = c1 * 0.5 + 0.25 * (texture2D(tex, uv + dir * 2.0).rgb + texture2D(tex, uv - dir * 2.0).rgb);
+  float lC = luma(c2);
+  return (lC < lMin || lC > lMax) ? c1 : c2;
+}
+
 void main() {
-  vec3 col = texture2D(tDiffuse, vUv).rgb * exposure;
+  vec3 col = fxaa(tDiffuse, vUv) * exposure;
   col += texture2D(tBloom, vUv).rgb * bloomStr;
 
   if (shafts > 0.001 && sunPos.x > -0.2 && sunPos.x < 1.2) {
@@ -78,22 +100,22 @@ void main() {
       decay *= 0.78;
     }
     float fall = smoothstep(1.1, 0.05, dist);
-    col += vec3(1.0, 0.72, 0.42) * acc * 0.022 * shafts * fall;
+    col += vec3(0.92, 0.78, 0.58) * acc * 0.016 * shafts * fall;
   }
 
-  col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, saturation);
+  col = mix(vec3(luma(col)), col, saturation);
   col = (col - 0.5) * contrast + 0.5;
   col = col * gain + lift;
   col = aces(col);
-  col = pow(col, vec3(0.95));
 
   vec2 vc = vUv * (1.0 - vUv);
   float vig = vc.x * vc.y * 16.0;
   vig = pow(clamp(vig, 0.0, 1.0), vignette);
-  col *= vig;
+  col *= mix(0.92, 1.0, vig);
 
-  float n = fract(sin(dot(vUv * vec2(1920.0, 1080.0) + time * 13.7, vec2(12.9898, 78.233))) * 43758.5453);
-  col += (n - 0.5) * grain;
+  float n = fract(sin(dot(vUv * resolution + time * 5.1, vec2(12.9898, 78.233))) * 43758.5453);
+  float n2 = fract(sin(dot(vUv * resolution * 0.5 + time * 2.3, vec2(39.346, 11.135))) * 23421.631);
+  col += (n - 0.5) * grain * 0.7 + (n2 - 0.5) * grain * 0.35;
 
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -116,11 +138,8 @@ float linearize(float d) {
 void main() {
   vec3 col = texture2D(tDiffuse, vUv).rgb;
   float depth = linearize(texture2D(tDepth, vUv).x);
-  if (depth > 90.0) {
-    gl_FragColor = vec4(col, 1.0);
-    return;
-  }
   vec2 texel = 1.0 / resolution;
+  float farF = smoothstep(55.0, 130.0, depth);
   float occ = 0.0;
   vec2 o0 = vec2(1.0, 0.0);
   vec2 o1 = vec2(-1.0, 0.0);
@@ -134,11 +153,12 @@ void main() {
   offs[0] = o0; offs[1] = o1; offs[2] = o2; offs[3] = o3;
   offs[4] = o4; offs[5] = o5; offs[6] = o6; offs[7] = o7;
   for (int i = 0; i < 8; i++) {
-    float sd = linearize(texture2D(tDepth, vUv + offs[i] * texel * 2.5).x);
-    occ += clamp((depth - sd) * 0.4, 0.0, 1.0);
+    float sd = linearize(texture2D(tDepth, vUv + offs[i] * texel * 3.2).x);
+    occ += clamp((depth - sd) * 0.28, 0.0, 1.0);
   }
   float ao = 1.0 - (occ / 8.0) * strength;
-  gl_FragColor = vec4(col * mix(1.0, ao, 0.9), 1.0);
+  ao = mix(ao, 1.0, farF);
+  gl_FragColor = vec4(col * mix(1.0, ao, 0.75), 1.0);
 }
 `;
 
@@ -186,7 +206,7 @@ export class PostFX {
     this.fsCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.fsScene.add(this.quad);
 
-    this.uBright = { tDiffuse: { value: null }, threshold: { value: 0.9 } };
+    this.uBright = { tDiffuse: { value: null }, threshold: { value: 0.82 } };
     this.brightMat = fsMat(BRIGHT, this.uBright);
     this.uBlur = { tDiffuse: { value: null }, direction: { value: new THREE.Vector2(1, 0) }, resolution: { value: new THREE.Vector2(bw, bh) } };
     this.blurMat = fsMat(BLUR, this.uBlur);
@@ -196,23 +216,24 @@ export class PostFX {
       resolution: { value: new THREE.Vector2(w * pr, h * pr) },
       cameraNear: { value: 0.05 },
       cameraFar: { value: 220 },
-      strength: { value: 0.9 }
+      strength: { value: 0.55 }
     };
     this.ssaoMat = fsMat(SSAO, this.uSSAO);
     this.uComp = {
       tDiffuse: { value: null },
       tBloom: { value: null },
-      bloomStr: { value: 0.42 },
+      bloomStr: { value: 0.30 },
       time: { value: 0 },
-      grain: { value: 0.03 },
-      vignette: { value: 0.2 },
+      grain: { value: 0.032 },
+      vignette: { value: 0.14 },
       exposure: { value: 1.0 },
       sunPos: { value: new THREE.Vector2(0.2, 0.72) },
       shafts: { value: 0.85 },
-      lift: { value: new THREE.Vector3(0.006, 0.010, 0.016) },
-      gain: { value: new THREE.Vector3(1.03, 1.0, 0.97) },
-      contrast: { value: 1.2 },
-      saturation: { value: 0.74 }
+      lift: { value: new THREE.Vector3(0.004, 0.010, 0.020) },
+      gain: { value: new THREE.Vector3(0.98, 1.0, 1.04) },
+      contrast: { value: 1.05 },
+      saturation: { value: 0.80 },
+      resolution: { value: new THREE.Vector2(1280, 720) }
     };
     this.compMat = fsMat(COMP, this.uComp);
     this.compMat.toneMapped = false;
@@ -224,12 +245,12 @@ export class PostFX {
     this.quality = q;
     const high = q === 'high';
     const low = q === 'low';
-    this.uComp.bloomStr.value = low ? 0.0 : high ? 0.48 : 0.36;
-    this.uComp.grain.value = low ? 0.012 : 0.028;
-    this.uComp.shafts.value = low ? 0.0 : high ? 0.92 : 0.65;
+    this.uComp.bloomStr.value = low ? 0.0 : high ? 0.32 : 0.24;
+    this.uComp.grain.value = low ? 0.016 : 0.034;
+    this.uComp.shafts.value = low ? 0.0 : high ? 0.7 : 0.5;
     this.doBloom = !low;
     this.doSSAO = !low;
-    this.uSSAO.strength.value = high ? 1.05 : 0.75;
+    this.uSSAO.strength.value = high ? 0.55 : 0.4;
   }
 
   setSize(w, h) {
@@ -243,6 +264,7 @@ export class PostFX {
     this.ssaoRT.setSize(Math.max(2, w * pr), Math.max(2, h * pr));
     this.uBlur.resolution.value.set(bw, bh);
     this.uSSAO.resolution.value.set(Math.max(2, w * pr), Math.max(2, h * pr));
+    this.uComp.resolution.value.set(Math.max(2, w * pr), Math.max(2, h * pr));
   }
 
   updateSun(camera, sunDir) {
@@ -304,6 +326,7 @@ export class PostFX {
     }
     this.uComp.tDiffuse.value = colorTex;
     this.uComp.time.value = performance.now() * 0.001;
+    this.uComp.resolution.value.set(this.sceneRT.width, this.sceneRT.height);
     this.quad.material = this.compMat;
     r.setRenderTarget(null);
     r.render(this.fsScene, this.fsCam);

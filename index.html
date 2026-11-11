@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>锈潮断链 · Rusttide Cutoff — 作者：Jack</title>
 <meta name="author" content="Jack">
-<meta name="description" content="锈潮断链：黎明雨中的集装箱港区，单人突击，切断三处中继后登艇撤离。作者：Jack · 禁止转载。">
+<meta name="description" content="锈潮断链：黎明雨中的乍浦港区，单人突击，切断三处中继后登艇撤离。作者：Jack · 禁止转载。">
 <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
@@ -22,7 +22,7 @@
       <div id="objTitle">切断三处中继</div>
       <div class="obj-row"><span class="lbl2">中继</span><span id="relayBoxes"><i></i><i></i><i></i></span><span id="relayCount">0/3</span></div>
     </div>
-    <div id="caption" class="hidden"><div class="cap-main">锈潮港 · 七号泊位 · <span id="capClock">05:18</span></div><div class="cap-sub">潮汐行动组 · 单兵渗透 · 无支援</div></div>
+    <div id="caption" class="hidden"><div class="cap-main">乍浦港区 · <span id="capClock">05:18</span></div><div class="cap-sub">潮汐行动组 · 单兵渗透 · 无支援</div></div>
     <div id="health"><div class="lbl">生命体征</div><div class="hp-row"><div class="hp-bar"><i id="hpFill"></i></div><b id="hpNum">100</b></div><div id="regenTip" class="hidden">掩体内 · 加速恢复</div></div>
     <div id="ammo"><div class="ammo-row"><b id="ammoNum">30</b><span class="slash">/</span><span id="reserveNum">150</span></div><div class="mag-ticks" id="magTicks"></div><div id="weapName">1 · 潮汐-7 突击步枪</div><div id="gren">手雷 ×2</div><div id="reloadTip" class="hidden">换弹中</div><div id="lowTip" class="hidden">按 R 换弹</div></div>
     <div id="cross"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
@@ -37,17 +37,17 @@
 
   <div id="title" class="menu">
     <div class="menu-inner">
-      <div class="badge-row"><span class="badge">T7</span><b>潮汐行动组</b><span class="dim">锈潮港 · 05:18</span></div>
+      <div class="badge-row"><span class="badge">T7</span><b>潮汐行动组</b><span class="dim">乍浦港区 · 05:18</span></div>
       <h1 class="title-big">锈潮</h1>
       <div class="title-sub">断链</div>
       <div class="rule"></div>
-      <p class="pitch">港区自动化系统被入侵，机械巡检单元全面失控。切断三处上行中继，杀出堆场，登上撤离艇。</p>
+      <p class="pitch">乍浦港区自动化系统被入侵，机械巡检单元全面失控。切断三处上行中继，杀出堆场，登上撤离艇。</p>
       <div class="btns"><button id="btnStart" class="btn primary">开始行动</button><button class="btn" data-open="settings">设置</button><button class="btn" data-open="help">操作说明</button><button class="btn" data-open="about">关于</button></div>
-      <p class="credit">作者：Jack · © Jack 版权所有 · 禁止任何形式转载 · 玩法受《Saltline》（Felix Rieseberg）启发，代码与素材均为原创</p>
+      <p class="credit">作者：Jack · © Jack 版权所有 · 禁止任何形式转载 · 玩法受《Saltline》（Felix Rieseberg）启发；除署名的第三方枪械模型外，代码与素材为原创。两款 CC BY 4.0 枪模不受「禁止转载」约束，详见关于与 NOTICE</p>
     </div>
     <div class="keys">
       <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</div><div><kbd>鼠标</kbd> 视角</div><div><kbd>左键</kbd> 开火</div><div><kbd>右键</kbd> 按住瞄准</div><div><kbd>R</kbd> 换弹</div>
-      <div><kbd>1</kbd><kbd>2</kbd>/<kbd>滚轮</kbd> 切枪</div><div><kbd>G</kbd> 手雷</div><div><kbd>V</kbd> 近战</div>
+      <div><kbd>Q</kbd> 切枪<span class="dim">（1 / 2 / 滚轮亦可）</span></div><div><kbd>G</kbd> 手雷</div><div><kbd>V</kbd> 近战</div>
       <div><kbd>E</kbd> 切断中继</div><div><kbd>SPACE</kbd> 跳跃</div><div><kbd>SHIFT</kbd> 冲刺</div><div><kbd>C</kbd>/<kbd>CTRL</kbd> 蹲伏</div><div><kbd>ESC</kbd> 暂停</div>
     </div>
   </div>
@@ -86,17 +86,22 @@
   </template>
   <template id="tpl-help">
     <h3>操作说明</h3>
-    <p>WASD 移动 · 鼠标视角 · 左键开火 · <b>按住右键瞄准</b> · R 换弹 · 1 / 2 或滚轮切换步枪与霰弹枪 · G 投掷手雷 · V 枪托近战 · E 按住切断中继 · 空格跳跃 · Shift 冲刺 · C / Ctrl 蹲伏 · Esc 暂停。</p>
+    <p>WASD 移动 · 鼠标视角 · 左键开火 · <b>按住右键瞄准</b> · R 换弹 · <b>Q 切换步枪与霰弹枪</b>（1 / 2 或滚轮亦可） · G 投掷手雷 · V 枪托近战 · E 按住切断中继 · 空格跳跃 · Shift 冲刺 · C / Ctrl 蹲伏 · Esc 暂停。</p>
     <p>武器：潮汐-7 突击步枪（全自动、精准）；港务-12 泵动霰弹枪（9 颗弹丸、近距离毁伤极高、逐发装填可随时开火打断）；手雷（2.2 秒引信，可在墙面弹跳）。弹药箱会同时补充两把枪的备弹并补 1 枚手雷。</p>
-    <p>任务：依次切断甲、乙、丙三处上行中继（顶部罗盘标记），每切断一处，港区会加派更强的机械单元。全部切断后前往码头撤离艇登船。</p>
+    <p>任务：依次切断甲、乙、丙三处上行中继（顶部罗盘标记），每切断一处，乍浦港区会加派更强的机械单元。全部切断后前往码头撤离艇登船。</p>
     <p>弱点：机械猎犬头部传感器、机械飞鸥腹部光核、机械守卫背部散热核心与面罩，命中伤害大幅提升（命中标记变为琥珀色）。</p>
     <p>生命：脱离交火 4 秒后自动恢复，躲在掩体后（敌人无视线）恢复更快。击毁机械可能掉落弹药箱。</p>
     <p>敌人会沿集装箱之间的通道寻路包抄：猎犬从两侧迂回，守卫寻找掩体后探身点射，飞鸥沿弧线俯冲扫射。</p>
   </template>
   <template id="tpl-about">
     <h3>关于《锈潮断链》</h3>
-    <p>作者：Jack · © Jack 版权所有 · 禁止任何形式转载。</p>
-    <p>玩法结构受 Felix Rieseberg 的浏览器 FPS《Saltline》启发（切断中继 → 敌人升级 → 登船撤离）。本作所有代码、模型、贴图、音效与文字均为独立原创实现：模型由 Blender 脚本（art/build_assets.py）程序化生成，PBR 贴图由 art/bake_textures.py 程序化烘焙，Three.js 渲染，Web Audio 实时合成。</p>
+    <p>作者：Jack · © Jack 版权所有 · 禁止任何形式转载（下列两款 CC BY 4.0 枪械模型除外，其再分发以原许可证为准）。</p>
+    <p>玩法结构受 Felix Rieseberg 的浏览器 FPS《Saltline》启发（切断中继 → 敌人升级 → 登船撤离）。除署名的第三方枪械模型外，本作代码、场景模型、贴图、音效与文字均为独立原创实现：场景网格由 Blender 脚本（art/build_assets.py）程序化生成，PBR 贴图由 art/bake_textures.py 程序化烘焙，Three.js 渲染，Web Audio 实时合成。</p>
+    <p>第一人称步枪与霰弹枪基于 Gintoki1234 的 CC BY 4.0 模型改装：</p>
+    <ul>
+      <li>「M16 A4」— Gintoki1234 — <a href="https://gintoki1234.itch.io/m16-a4" target="_blank" rel="noopener">itch.io/m16-a4</a> — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>。已修改：去除弹匣内子弹与提把瞄具、涂改厂牌铭文并刻「潮汐-7 / 乍浦港区」原创铭牌、港口锈湿做旧、贴图压缩、加装原创全息瞄具与第一人称手部。</li>
+      <li>「Remington 870 FieldMaster」— Gintoki1234 — <a href="https://gintoki1234.itch.io/remington-pump-action-shotgun" target="_blank" rel="noopener">itch.io/remington-pump-action-shotgun</a> — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>。已修改：涂改厂牌铭文并刻「港务-12」原创铭牌、港口锈湿做旧、贴图压缩、拆出泵把供动画、加入第一人称手部。</li>
+    </ul>
   </template>
 </div>
 <script type="module" src="js/main.js"></script>

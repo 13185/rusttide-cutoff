@@ -28,10 +28,10 @@ const PHASES = [
   { max: 10, every: 3.2, mix: { hound: 0.45, gull: 0.3, warden: 0.25 }, wardens: 3 }
 ];
 const RADIO = {
-  start: ['潮汐七号，这里是潮汐台。港区自动化网络被入侵，所有巡检机械已转为攻击模式。', '三处上行中继分别在西堆场、东仓库和一号岸桥下。逐个切断，撤离艇在码头东侧待命。'],
+  start: ['潮汐七号，这里是潮汐台。乍浦港区自动化网络被入侵，所有巡检机械已转为攻击模式。', '三处上行中继分别在西堆场、东仓库和一号岸桥下。逐个切断，撤离艇在码头东侧待命。'],
   cut1: ['第一处中继下线。网络正在重新路由——重型守卫单元被唤醒了，利用集装箱掩护。'],
   cut2: ['第二处中继下线。它们放出了空中单元，注意头顶。'],
-  cut3: ['最后一处中继已断开！整个港区都在朝你压过来——立刻去码头东侧登艇！'],
+  cut3: ['最后一处中继已断开！整个乍浦港区都在朝你压过来——立刻去码头东侧登艇！'],
   lowhp: ['生命体征在下降，先找掩体，别硬拼。', '你在流血，七号，退到箱子后面！'],
   boat: ['看到你了，跳上来，我们马上离岸！'],
   ammo: ['弹药告急，击毁的机械身上有港务局的弹药箱。']
@@ -52,7 +52,7 @@ export class Game {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.fov, innerWidth / innerHeight, 0.05, 1200);
     this.sunDir = new THREE.Vector3(0.13, 0.085, -1).normalize();
-    this.scene.fog = new THREE.FogExp2(0x6c7178, 0.0085);
+    this.scene.fog = new THREE.FogExp2(0x687078, 0.0068);
     this.input = new Input(canvas);
     this.audio = new Audio();
     this.stats = { shots: 0, hits: 0, weak: 0, kills: 0, time: 0 };
@@ -62,7 +62,7 @@ export class Game {
     const step = async (txt, p) => { progress(txt, p); await new Promise((r) => setTimeout(r, 16)); };
     await step('正在载入模型与材质', 0.02);
     await loadAssets((p) => progress('正在载入模型与材质 ' + Math.round(p * 100) + '%', 0.02 + p * 0.3));
-    await step('正在铺设港区路面', 0.35);
+    await step('正在铺设乍浦港区路面', 0.35);
     this.refl = new PlanarReflection(this.renderer, 0.5);
     this.sky = new Sky(this.sunDir);
     this.scene.add(this.sky.mesh);
@@ -87,12 +87,12 @@ export class Game {
     this.player = new Player(this.camera, this.world, this.input);
     this.player.onHurt = (n) => { this.audio.hurt(); this.shake = Math.min(1, this.shake + 0.25 + n * 0.01); };
     this.weapon.onShell = () => this.audio.shellIn();
-    this.shake = 0; this.recoilBack = 0; this.nades = []; this.perf = { calls: 0, tris: 0, fps: 0 };
+    this.shake = 0; this.recoilP = 0; this.recoilY = 0; this.recoilPV = 0; this.recoilYV = 0; this.nades = []; this.perf = { calls: 0, tris: 0, fps: 0 };
     this.input.onLook = (dx, dy) => this.weapon.addSway(dx, dy);
     this.input.onLockChange = (l) => this._onLock(l);
     this.post = new PostFX(this.renderer, { quality: 'high' });
     this.post.uSSAO.cameraFar.value = 1200;
-    this.post.uComp.exposure.value = 1.45;
+    this.post.uComp.exposure.value = 1.22;
     this.pickups = [];
     await step('正在准备首帧画面', 0.95);
     this.applyQuality(this.quality);
@@ -208,7 +208,7 @@ export class Game {
     this.stats = { shots: 0, hits: 0, weak: 0, kills: 0, time: 0 };
     this.radioQ = []; this.radioT = 0; this.lowHpTold = 0; this.ammoTold = false; this.boatTold = false;
     this.coverT = 0; this.inCover = false;
-    for (const n of this.nades) this.scene.remove(n.m); this.nades = []; this.shake = 0; this.recoilBack = 0;
+    for (const n of this.nades) this.scene.remove(n.m); this.nades = []; this.shake = 0; this.recoilP = 0; this.recoilY = 0; this.recoilPV = 0; this.recoilYV = 0;
     this._weapHud();
     this.mode = 'play';
     this._show(null);
@@ -354,10 +354,10 @@ export class Game {
     this.fx.light(muzzle, 0xffa050, d.pellets > 1 ? 30 : 14, 0.05, 8);
     if (d.pellets > 1) this.fx.puff(muzzle.clone().add(new THREE.Vector3(0, 0.05, 0)), 0.5, 0.8);
     // 后坐：上跳 + 部分自动回落
-    const adsK = w.ads > 0.5 ? 0.55 : 1;
+    const adsK = 1 - w.ads * 0.45;
     const kick = (d.recoil + Math.random() * d.recoil * 0.45) * adsK;
-    this.player.pitch += kick; this.recoilBack += kick * 0.55;
-    this.player.yaw += (Math.random() - 0.5) * d.recoil * 0.7 * adsK;
+    this.recoilPV += kick * 18;
+    this.recoilYV += (Math.random() - 0.5) * d.recoil * 0.7 * adsK * 18;
     this.shake = Math.min(1, this.shake + (d.pellets > 1 ? 0.22 : 0.05));
     if (w.ammo === 0 && w.reserve > 0 && w.startReload()) this.audio.reload(w.reloadTotal);
   }
@@ -522,7 +522,7 @@ export class Game {
     $('reloadTip').classList.toggle('hidden', !(w.reloading > 0));
     if (w.reloading > 0) $('reloadTip').textContent = (w.def.perShell ? '装填中 ' : '换弹中 ') + Math.round(w.reloadProgress() * 100) + '%';
     $('lowTip').classList.toggle('hidden', !(w.reloading <= 0 && w.ammo <= Math.ceil(w.def.mag / 5) && w.reserve > 0));
-    $('cross').style.opacity = w.ads > 0.5 ? 0 : 1;
+    $('cross').style.opacity = w.ads > 0.25 ? 0 : (1 - w.ads * 3);
     const sp = w.spread(Math.min(1, pl.speed / 5), pl.crouch) * 900;
     for (const [c, x, y] of [['t', 0, -1], ['b', 0, 1], ['l', -1, 0], ['r', 1, 0]]) $('cross').querySelector('.' + c).style.transform = `translate(${x * (6 + sp)}px,${y * (6 + sp)}px)`;
     $('hurtVig').style.opacity = Math.max(pl.hurtFlash * 1.6, pl.hp < 35 ? (1 - pl.hp / 35) * 0.8 : 0);
@@ -571,7 +571,8 @@ export class Game {
     // 阴影相机跟随
     const cp = this.camera.position;
     this.sun.target.position.set(cp.x, 0, cp.z); this.sun.position.set(cp.x + this.sunDir.x * 150, this.sunDir.y * 150 + 20, cp.z + this.sunDir.z * 150);
-    this.camera.fov = damp(this.camera.fov, this.fov * (1 - this.weapon.ads * 0.24) + (this.player.sprint ? 4 : 0), 12, dt);
+    const adsEase = this.weapon.ads * this.weapon.ads * (3 - 2 * this.weapon.ads);
+    this.camera.fov = damp(this.camera.fov, this.fov * (1 - adsEase * 0.13) + (this.player.sprint ? 3 : 0), 8, dt);
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
@@ -601,10 +602,19 @@ export class Game {
     if (mv.foot) this.audio.foot(pl.sprint);
     const firePress = inp.takeFire();
     if (!pl.sprint && (w.def.auto ? inp.fireHeld : firePress)) this._fire();
-    // 后坐回落 + 屏幕震动
-    if (this.recoilBack > 0) { const r = Math.min(this.recoilBack, dt * 0.35); pl.pitch -= r; this.recoilBack -= r; }
+    // 后坐：弹簧回正，收尾干净
+    const rk = 38, rd = 11;
+    this.recoilPV += -rk * this.recoilP * dt - rd * this.recoilPV * dt;
+    this.recoilYV += -rk * this.recoilY * dt - rd * this.recoilYV * dt;
+    this.recoilP += this.recoilPV * dt;
+    this.recoilY += this.recoilYV * dt;
+    if (Math.abs(this.recoilP) < 1e-5 && Math.abs(this.recoilPV) < 1e-4) { this.recoilP = 0; this.recoilPV = 0; }
+    if (Math.abs(this.recoilY) < 1e-5 && Math.abs(this.recoilYV) < 1e-4) { this.recoilY = 0; this.recoilYV = 0; }
+    this.camera.rotation.x += this.recoilP;
+    this.camera.rotation.y += this.recoilY;
     this.shake = Math.max(0, this.shake - dt * 2.2);
-    if (this.shake > 0.001) { const k = this.shake * this.shake * 0.035, t = this.time * 47; this.camera.rotation.x += Math.sin(t) * k; this.camera.rotation.y += Math.sin(t * 1.37 + 1) * k; this.camera.rotation.z += Math.sin(t * 0.83 + 2) * k * 0.6; }
+    this.shake = this.shake < 0.004 ? 0 : this.shake;
+    if (this.shake > 0.001) { const k = this.shake * this.shake * 0.028, t = this.time * 47; this.camera.rotation.x += Math.sin(t) * k; this.camera.rotation.y += Math.sin(t * 1.37 + 1) * k; this.camera.rotation.z += Math.sin(t * 0.83 + 2) * k * 0.5; }
     this._nades(dt);
     w.update(dt, inp, { speed: pl.speed });
     this.enemies.update(dt, pl, this.time);

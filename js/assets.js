@@ -1,16 +1,16 @@
-// 资产加载：Blender 导出的 glb 模型 + 烘焙 PBR 贴图（作者：Jack · 原创，禁止转载）
+// 资产加载：Blender 导出的 glb 模型 + 烘焙 PBR 贴图（作者：Jack；枪械为改装的第三方 CC BY 4.0 模型，见 NOTICE）
 import * as THREE from '../vendor/three/three.module.js';
 import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
 
-const MODELS = ['rifle', 'shotgun', 'grenade', 'containers', 'cranes', 'props', 'enemies'];
-const TEXSETS = ['paint', 'enemy', 'steel', 'gunmetal', 'polymer', 'concrete'];
+const MODELS = ['rifle', 'shotgun', 'grenade', 'containers', 'cranes', 'props', 'enemies', 'yardprops'];
+const TEXSETS = ['paint', 'enemy', 'steel', 'gunmetal', 'polymer', 'concrete', 'corten', 'wood', 'cardboard'];
 
 export const A = { models: {}, tex: {}, wet: { value: 0.85 } };
 
 export async function loadAssets(progress) {
   const gl = new GLTFLoader();
   const tl = new THREE.TextureLoader();
-  let done = 0; const total = MODELS.length + TEXSETS.length * 3 + 1;
+  let done = 0; const total = MODELS.length + TEXSETS.length * 3 + 4;
   const tick = () => progress && progress(++done / total);
   const tex = (url, srgb) => new Promise((res, rej) => tl.load(url, (t) => {
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
@@ -18,11 +18,26 @@ export async function loadAssets(progress) {
     tick(); res(t);
   }, undefined, rej));
   const jobs = [];
-  for (const m of MODELS) jobs.push(new Promise((res, rej) => gl.load(`models/${m}.glb`, (g) => { A.models[m] = g.scene; tick(); res(); }, undefined, rej)));
+  // 低画质：枪械用 1024 贴图版本（*_lo.glb）
+  const q = new URLSearchParams(location.search).get('quality') || localStorage.getItem('rt.quality') || 'high';
+  const file = (m) => (q === 'low' && (m === 'rifle' || m === 'shotgun') ? `${m}_lo` : m);
+  for (const m of MODELS) jobs.push(new Promise((res, rej) => gl.load(`models/${file(m)}.glb`, (g) => { A.models[m] = g.scene; tick(); res(); }, undefined, rej)));
   for (const s of TEXSETS) {
     jobs.push(Promise.all([tex(`textures/${s}_a.jpg`, true), tex(`textures/${s}_n.jpg`, false), tex(`textures/${s}_orm.jpg`, false)]).then(([a, n, orm]) => { A.tex[s] = { a, n, orm }; }));
   }
   jobs.push(tex('textures/puddles.png', false).then((t) => { A.tex.puddles = t; }));
+  jobs.push(new Promise((res, rej) => tl.load('textures/container_mark.png', (t) => {
+    t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.anisotropy = 8;
+    A.tex.mark = t; tick(); res();
+  }, undefined, rej)));
+  jobs.push(new Promise((res, rej) => tl.load('textures/yard_decals.jpg', (t) => {
+    t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.anisotropy = 8;
+    A.tex.decals = t; tick(); res();
+  }, undefined, rej)));
+  jobs.push(new Promise((res, rej) => tl.load('textures/yard_decals_n.jpg', (t) => {
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.anisotropy = 8;
+    A.tex.decalsN = t; tick(); res();
+  }, undefined, rej)));
   await Promise.all(jobs);
   // glTF 顶点色 → 自定义 wear 属性（不让它当作颜色乘进去）
   for (const k of MODELS) A.models[k].traverse((o) => {

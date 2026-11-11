@@ -30,12 +30,24 @@ function sideFlashTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+// 双手握持（g 空间，相对模型里的 gripR / gripL 锚点）：off=掌心偏移，finger=手指伸展方向，dorsal=手背朝向，arm=前臂方向
+const HAND_CFG = {
+  rifle: {
+    R: { off: [0.024, 0.02, 0.03], finger: [0, -0.32, -0.95], dorsal: [1, 0.05, 0], arm: [0.3, -0.5, 1], curl: [[0.0, 0.2, 0.2], [0.55, 0.5, 0.35], [0.55, 0.5, 0.35], [0.55, 0.5, 0.35]], thumb: [0.7, 0.5, 0.5] },
+    L: { off: [-0.024, 0.006, 0.0], finger: [0.75, 0.05, -0.65], dorsal: [-0.4, -0.9, 0], arm: [-0.45, -0.5, 1], curl: [[0.4, 0.5, 0.35], [0.4, 0.5, 0.35], [0.4, 0.5, 0.35], [0.4, 0.5, 0.35]], thumb: [0.2, 0, 0.2] },
+  },
+  shotgun: {
+    R: { off: [0.028, 0.0, 0.004], finger: [0, -0.85, -0.5], dorsal: [1, 0.05, 0], arm: [0.3, -0.45, 1], curl: [[0.0, 0.2, 0.2], [0.55, 0.5, 0.35], [0.55, 0.5, 0.35], [0.55, 0.5, 0.35]], thumb: [0.7, 0.5, 0.5] },
+    L: { off: [-0.02, 0.008, 0.0], finger: [0.75, 0.05, -0.65], dorsal: [-0.4, -0.9, 0], arm: [-0.45, -0.5, 1], curl: [[0.4, 0.5, 0.35], [0.4, 0.5, 0.35], [0.4, 0.5, 0.35], [0.4, 0.5, 0.35]], thumb: [0.2, 0, 0.2] },
+  },
+};
+
 export class Weapon {
   constructor(camera, glowTex) {
     this.camera = camera;
     this.scene = new THREE.Scene();
     this.ads = 0; this.kick = 0; this.squeeze = 0; this.sway = new THREE.Vector2(); this.bob = 0; this.flash = 0;
-    this.switchT = 0; this.meleeT = 0; this.throwT = 0; this.pumpT = 0;
+    this.switchT = 0; this.meleeT = 0; this.throwT = 0; this.pumpT = 0; this.cycleT = 0;
     this.shells = [];
     this._build(glowTex);
     this.reset();
@@ -62,47 +74,57 @@ export class Weapon {
   }
 
   _build(glowTex) {
-    // 磷化钢：低反射、偏粗糙；边角磨出亮钢
-    const gm = pbr('gunmetal', { color: 0x7a7c80, metal: 0.6, rough: 1.25, env: 0.45, wear: 0.4, wearColor: 0x6c6f74, wet: 0 });
-    const dark = pbr('gunmetal', { color: 0x6a6a6a, metal: 0.55, rough: 1.4, env: 0.45, wear: 0.3, wearColor: 0x55585c, wet: 0 });
-    const poly = pbr('polymer', { color: 0x2a2b28, metal: 0, env: 0.5, wear: 0.2, wearColor: 0x45453f, wet: 0 });
-    const fde = pbr('polymer', { color: 0x6e5d45, metal: 0, env: 0.45, wear: 0.25, wearColor: 0x857559, wet: 0 });
-    const glove = pbr('polymer', { color: 0x232524, metal: 0, rough: 1.3, env: 0.4, wear: 0, wet: 0, normal: 1.6 });
-    const sleeve = pbr('polymer', { color: 0x3d4a38, metal: 0, rough: 1.2, env: 0.4, wear: 0.15, wearColor: 0x5a6550, wet: 0.2, normal: 1.4 });
-    const skin = pbr('polymer', { color: 0xa07862, metal: 0, rough: 0.85, env: 0.5, wear: 0.1, wearColor: 0x7a5648, wet: 0.35, normal: 0.65 });
-    const knuckle = pbr('polymer', { color: 0x86584c, metal: 0, rough: 0.95, env: 0.3, wear: 0, wet: 0.3, normal: 0.5 });
+    // 原创件（红点镜 / 双手）用项目 PBR；枪身用改装后的 CC BY 模型自带 glTF PBR（反照率 sRGB、ORM/法线线性，由 GLTFLoader 正确标注）
+    const dark = pbr('gunmetal', { color: 0x26282c, metal: 0.55, rough: 1.3, env: 0.4, wear: 0.25, wearColor: 0x56595e, wet: 0 });
+    const gm = pbr('gunmetal', { color: 0x33363a, metal: 0.6, rough: 1.2, env: 0.42, wear: 0.3, wearColor: 0x6a6d72, wet: 0 });
+    const sleeve = pbr('polymer', { color: 0x37422f, metal: 0, rough: 1.2, env: 0.35, wear: 0.15, wearColor: 0x525c48, wet: 0.2, normal: 1.4 });
+    const skin = pbr('polymer', { color: 0x94705c, metal: 0, rough: 0.85, env: 0.45, wear: 0.1, wearColor: 0x744f42, wet: 0.35, normal: 0.65 });
+    const knuckle = pbr('polymer', { color: 0x80564a, metal: 0, rough: 0.95, env: 0.3, wear: 0, wet: 0.3, normal: 0.5 });
     const nail = new THREE.MeshStandardMaterial({ color: 0x6a4a42, roughness: 0.5, metalness: 0 });
     const lens = new THREE.MeshStandardMaterial({ color: 0x6a8a94, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 0.9 });
-    const wood = pbr('polymer', { color: 0x6a4024, metal: 0, rough: 0.8, wear: 0.5, wearColor: 0x9a6a40, wet: 0 });
-    const brass = new THREE.MeshStandardMaterial({ color: 0xc8a050, roughness: 0.3, metalness: 1 });
-    const red = new THREE.MeshStandardMaterial({ color: 0x8a1a10, roughness: 0.5 });
-    const byName = { M_gun_metal: gm, M_gun_dark: dark, M_gun_poly: poly, M_gun_fde: fde, M_glove: skin, M_sleeve: sleeve, M_skin: skin, M_knuckle: knuckle, M_nail: nail, M_lens: lens, M_gun_wood: wood, M_brass: brass, M_shell_red: red };
-    this.brass = brass; this.red = red;
+    const byName = { M_gun_metal: gm, M_gun_dark: dark, M_gun_poly: dark, M_gun_fde: dark, M_glove: skin, M_sleeve: sleeve, M_skin: skin, M_knuckle: knuckle, M_nail: nail, M_lens: lens };
+    // 改装枪身材质：湿冷港口光下偏沉稳——环境反射略收、AO 全开
+    const tuneGun = (m) => { if (!m || m.userData.tuned) return m; m.userData.tuned = true; m.color.multiplyScalar(0.72); if (m.color.r > m.color.b * 1.08) m.color.r *= 0.92; m.metalness = Math.min(0.85, (m.metalness || 0.6) * 0.95); m.roughness = Math.min(1, Math.max(0.42, (m.roughness || 0.5) * 1.08)); m.envMapIntensity = 0.42; m.aoMapIntensity = 1.0; if (m.normalScale) m.normalScale.set(0.85, 0.85); return m; };
     this.views = [];
     const ftex = flashTexture(), stex = sideFlashTexture();
+    const tmp = new THREE.Vector3();
     for (const def of GUNS) {
-      const inner = instance(def.id, null, (n) => byName[n], { shadow: false, receive: false });
-      inner.rotation.y = Math.PI; // Blender 模型枪口朝 +Z，转到 -Z
-      const g = new THREE.Group(); g.add(inner); g.scale.setScalar(0.95);
+      const inner = instance(def.id, null, (n, o) => byName[n] || tuneGun(o.material), { shadow: false, receive: false });
+      inner.rotation.y = Math.PI; // Blender 中枪口朝 -Y（glTF +Z），转到 -Z
+      const g = new THREE.Group(); g.add(inner);
       const by = (n) => inner.getObjectByName(n);
       const muz = by('muzzle'), ej = by('eject');
       // 枪口火焰
       const fl = new THREE.Group(); muz.add(fl);
       const add = (geo, tex, rx, ry) => { const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })); m.rotation.set(rx, ry, 0); fl.add(m); return m; };
       const front = add(new THREE.PlaneGeometry(0.22, 0.22), ftex, 0, 0); // 正对相机的星形
-      const s1 = add(new THREE.PlaneGeometry(0.34, 0.08).translate(0.17, 0, 0), stex, 0, Math.PI / 2);
-      const s2 = add(new THREE.PlaneGeometry(0.34, 0.08).translate(0.17, 0, 0), stex, Math.PI / 2, Math.PI / 2);
+      add(new THREE.PlaneGeometry(0.34, 0.08).translate(0.17, 0, 0), stex, 0, Math.PI / 2);
+      add(new THREE.PlaneGeometry(0.34, 0.08).translate(0.17, 0, 0), stex, Math.PI / 2, Math.PI / 2);
       fl.visible = false;
-      const view = { def, g, inner, muz, ej, fl, front, mag: by('mag'), bolt: by('bolt'), pump: by('pump') };
-      if (view.mag) view.magY = view.mag.position.y;
-      if (view.pump) view.pumpZ = view.pump.position.z;
-      if (def.id === 'rifle') {
+      const view = { def, g, inner, muz, ej, fl, front, mag: by('mag'), bolt: by('bolt'), carrier: by('carrier'), pump: by('pump') };
+      // 抛壳 / 装填用弹壳模型（模型自带，隐藏作模板）
+      const sm = by('shell_model'); if (sm) { sm.visible = false; view.shellTpl = sm; }
+      const sl = by('shell_live'); if (sl) { sl.visible = false; view.liveTpl = sl; }
+      for (const k of ['mag', 'bolt', 'carrier', 'pump']) if (view[k]) view[k + '0'] = view[k].position.clone();
+      g.updateMatrixWorld(true);
+      const gp = (n) => { const o = by(n); return o ? g.worldToLocal(o.getWorldPosition(tmp.set(0, 0, 0))).clone() : null; };
+      view.anchor = { sight: gp('sight'), gripR: gp('gripR'), gripL: gp('gripL'), magGrip: gp('magGrip'), chGrip: gp('chGrip'), loadPort: gp('loadPort') };
+      // 腰射：握把落在屏幕右下；开镜：瞄准线（红点镜中心 / 机匣顶→准星珠）与相机轴重合
+      const rifle = def.id === 'rifle', S = view.anchor.sight;
+      view.hip = rifle ? new THREE.Vector3(0.15, -0.205, -0.34) : new THREE.Vector3(0.15, -0.19, -0.33);
+      view.aim = rifle ? new THREE.Vector3(-S.x, -S.y, -S.z - 0.20) : new THREE.Vector3(-S.x, -S.y - 0.011, -S.z - 0.12);
+      if (rifle) {
         const lensMesh = by('dot_lens'); if (lensMesh) lensMesh.visible = false;
         const dot = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a20, transparent: true, depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending }));
         dot.scale.setScalar(0.0055); dot.position.z = -0.048; by('dot').add(dot);
         this._setupScope(view, by('dot'));
       }
       this._poseHands(view);
+      // 霰弹逐发装填：左手持一枚弹
+      if (view.liveTpl && view.hands && view.hands.handL) {
+        const hs = view.liveTpl.clone(); hs.visible = false; hs.position.set(0, 0.012, 0.075); hs.rotation.set(Math.PI / 2, 0, 0);
+        view.hands.handL.o.add(hs); view.handShell = hs;
+      }
       this.views.push(view);
     }
     this.flashLight = new THREE.PointLight(0xffa050, 0, 6, 2);
@@ -113,16 +135,13 @@ export class Weapon {
     for (const v of this.views) this.holder.add(v.g);
     this.holder.add(this.flashLight, this.grenadeMesh);
     this.scene.add(this.holder);
-    // 抛壳：世界坐标，渲染在枪层
-    this.shellGeo = new THREE.CylinderGeometry(0.0045, 0.0045, 0.03, 8); this.shellGeo.rotateZ(Math.PI / 2);
-    this.shotShellGeo = new THREE.CylinderGeometry(0.0095, 0.0095, 0.06, 10); this.shotShellGeo.rotateZ(Math.PI / 2);
-    // 视角模型灯光
-    this.scene.add(new THREE.HemisphereLight(0x9aa6b6, 0x3a322a, 1.0));
+    // 视角模型灯光：冷色天光为主、暖色只作弱轮廓（避免枪身偏亮偏粉）；注意枪层与世界一起进 HDR 后处理（曝光 ×1.45 + ACES），这里的强度按此折算
+    this.scene.add(new THREE.HemisphereLight(0x8e9aab, 0x2c2a28, 0.6));
     // 视角模型灯光挂在 holder 上，随镜头转动保持稳定的造型光（主光左上后方、轮廓光右前、补光下方）
     const L = (col, int, pos, tgt) => { const l = new THREE.DirectionalLight(col, int); l.position.set(...pos); l.target.position.set(...tgt); this.holder.add(l, l.target); return l; };
-    L(0xffe2c4, 1.7, [-1.4, 1.8, 0.8], [0.2, -0.2, -0.6]);
-    L(0x9ab0c8, 1.4, [1.6, 0.9, -2.2], [0, -0.1, -0.4]);
-    L(0xb0bccc, 0.35, [0.5, -1.5, 0.5], [0, 0, -0.5]);
+    L(0xd8dde6, 0.85, [-1.4, 1.8, 0.8], [0.2, -0.2, -0.6]);
+    L(0x9ab0c8, 0.7, [1.6, 0.9, -2.2], [0, -0.1, -0.4]);
+    L(0xc8b8a4, 0.2, [0.5, -1.5, 0.5], [0, 0, -0.5]);
     this.gun = this.views[0].g;
   }
   _showGun() { if (!this.views) return; this.views.forEach((v, i) => (v.g.visible = i === this.cur)); this.gun = this.views[this.cur].g; }
@@ -150,7 +169,7 @@ export class Weapon {
     this.kick = Math.min(1.6, this.kick + d.kick);
     this.flash = d.id === 'shotgun' ? 0.06 : 0.04;
     this.squeeze = 1;
-    if (d.id === 'shotgun') this.pumpT = 0.55;
+    if (d.id === 'shotgun') this.pumpT = 0.55; else this.cycleT = 0.06;
     this._eject(d.id === 'shotgun' ? 0.3 : 0);
     return 'fire';
   }
@@ -167,7 +186,7 @@ export class Weapon {
       const p = new THREE.Vector3().setFromMatrixPosition(v.ej.matrixWorld);
       const q = this.camera.quaternion;
       const vel = new THREE.Vector3(1.6 + Math.random() * 0.8, 1.4 + Math.random() * 0.6, 0.3 + Math.random() * 0.4).applyQuaternion(q);
-      const m = new THREE.Mesh(this.def.id === 'shotgun' ? this.shotShellGeo : this.shellGeo, this.def.id === 'shotgun' ? this.red : this.brass);
+      const m = v.shellTpl.clone(); m.visible = true;
       m.position.copy(p); m.quaternion.copy(q);
       this.scene.add(m);
       this.shells.push({ m, v: vel, w: new THREE.Vector3(Math.random() * 20, Math.random() * 20, Math.random() * 20), t: 0 });
@@ -197,8 +216,9 @@ export class Weapon {
       if (this.reloading < 0) this.reloading = 0;
     }
     const busy = this.meleeT > 0 || this.throwT > 0 || this.switchT > 0;
-    this.ads = damp(this.ads, input.adsHeld && this.reloading <= 0 && !busy ? 1 : 0, 14, dt);
-    this.kick = damp(this.kick, 0, d.id === 'shotgun' ? 6 : 9, dt);
+    this.ads = damp(this.ads, input.adsHeld && this.reloading <= 0 && !busy ? 1 : 0, 10, dt);
+    this.kick = damp(this.kick, 0, d.id === 'shotgun' ? 7 : 11, dt);
+    if (this.kick < 0.001) this.kick = 0;
     this.flash -= dt;
     const v = this.views[this.cur];
     v.fl.visible = this.flash > 0;
@@ -208,27 +228,67 @@ export class Weapon {
     this.flashLight.intensity = this.flash > 0 ? 7 : 0;
     // 摆动与晃动
     this.bob += dt * playerMove.speed * 1.6;
-    const bobA = Math.min(1, playerMove.speed / 5) * (1 - this.ads * 0.85);
-    const hip = d.id === 'shotgun' ? new THREE.Vector3(0.2, -0.2, -0.46) : new THREE.Vector3(0.2, -0.215, -0.5);
-    const aim = d.id === 'shotgun' ? new THREE.Vector3(0, -0.047, -0.36) : new THREE.Vector3(0, -0.1065, -0.32);
-    const p = hip.lerp(aim, this.ads);
+    const adsE = this.ads * this.ads * (3 - 2 * this.ads);
+    const bobA = Math.min(1, playerMove.speed / 5) * (1 - adsE * 0.85);
+    const p = v.hip.clone().lerp(v.aim, adsE);
     p.x += Math.sin(this.bob) * 0.012 * bobA + this.sway.x;
     p.y += Math.abs(Math.cos(this.bob)) * 0.01 * bobA + this.sway.y;
     p.z += this.kick * (d.id === 'shotgun' ? 0.05 : 0.035);
-    let rx = this.kick * (d.id === 'shotgun' ? 0.12 : 0.06), ry = (1 - this.ads) * 0.11, rz = (1 - this.ads) * -0.07;
-    // 换弹动作
+    let rx = this.kick * (d.id === 'shotgun' ? 0.12 : 0.06), ry = (1 - adsE) * 0.11, rz = (1 - adsE) * -0.07;
+    const A = v.anchor;
+    const ease = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+    const seg = (x, a, b) => ease((x - a) / (b - a));
+    const lt = A.gripL.clone(); // 左手目标（g 空间）
+    // 换弹动作：步枪 = 退匣 → 换新匣 → 拍入 → 拉机柄；霰弹 = 逐发从下方装填口压入
     const rp = this.reloadProgress();
-    let magDrop = 0;
-    if (this.reloading > 0) {
-      if (d.perShell) { rz += 0.35; rx -= 0.05; p.y -= 0.03; ry -= 0.1; }
-      else { const rot = Math.sin(rp * Math.PI) * 0.6; rx += rot * 0.3; rz += rot * 0.5; magDrop = rp < 0.5 ? Math.min(1, rp * 4) : Math.max(0, 1 - (rp - 0.5) * 3.5); p.y -= Math.sin(rp * Math.PI) * 0.05; }
+    let magDy = 0, chZ = 0, magVis = true, handShell = false;
+    if (this.reloading > 0 && !d.perShell) {
+      const tilt = seg(rp, 0, 0.12) * (1 - seg(rp, 0.88, 1));
+      rz += tilt * 0.34; rx += tilt * 0.1; ry -= tilt * 0.05; p.y -= tilt * 0.015;
+      const mg = A.magGrip, ch = A.chGrip, pouch = mg.clone().add(new THREE.Vector3(0.02, -0.32, 0.12));
+      if (rp < 0.1) lt.lerpVectors(A.gripL, mg, seg(rp, 0, 0.1));
+      else if (rp < 0.3) { const k = (rp - 0.1) / 0.2; magDy = -k * k * 0.5; magVis = rp < 0.22; lt.lerpVectors(mg, pouch, ease(k)); }
+      else if (rp < 0.5) { magDy = -0.3 * (1 - seg(rp, 0.3, 0.49)); lt.copy(mg).y += magDy; }
+      else if (rp < 0.6) { magDy = rp < 0.53 ? 0.006 * Math.sin((rp - 0.5) / 0.03 * Math.PI) : 0; lt.copy(mg); lt.y -= 0.01 * Math.sin(seg(rp, 0.5, 0.6) * Math.PI); }
+      else if (rp < 0.74) lt.lerpVectors(mg, ch, seg(rp, 0.6, 0.74));
+      else if (rp < 0.9) { chZ = 0.065 * seg(rp, 0.76, 0.81) * (1 - seg(rp, 0.85, 0.875)); lt.copy(ch); lt.z += chZ; }
+      else lt.lerpVectors(ch, A.gripL, seg(rp, 0.9, 1));
+    } else if (this.reloading > 0 && d.perShell) {
+      const tilt = seg(this.reloadTotal - this.reloading, 0, 0.3) * (1 - seg(0.25 - this.reloading, 0, 0.25));
+      rz += tilt * 0.42; rx -= tilt * 0.06; ry -= tilt * 0.08; p.y -= tilt * 0.02;
+      const port = A.loadPort, pick = port.clone().add(new THREE.Vector3(0.05, -0.13, 0.12));
+      const ph = Math.max(0, Math.min(1, 1 - this.shellT / d.reload));
+      if (this.reloadTotal - this.reloading < 0.35) { lt.copy(pick); }
+      else if (ph < 0.4) { lt.lerpVectors(pick, port.clone().add(new THREE.Vector3(0, -0.035, 0.03)), seg(ph, 0, 0.4)); handShell = true; }
+      else if (ph < 0.85) { lt.copy(port).add(new THREE.Vector3(0, -0.035 + 0.02 * seg(ph, 0.4, 0.6), 0.03 - 0.07 * seg(ph, 0.5, 0.85))); handShell = ph < 0.8; }
+      else lt.lerpVectors(port.clone().add(new THREE.Vector3(0, -0.015, -0.04)), pick, seg(ph, 0.85, 1));
     }
-    if (v.mag) v.mag.position.y = v.magY - magDrop * 0.25;
-    // 泵动
+    if (v.mag) { v.mag.position.y = v.mag0.y + magDy; v.mag.visible = magVis; }
+    if (v.bolt && v.bolt0) v.bolt.position.z = v.bolt0.z - chZ;
+    // 枪机：每发后坐循环
+    if (this.cycleT > 0) this.cycleT -= dt;
+    if (v.carrier) v.carrier.position.z = v.carrier0.z - (this.cycleT > 0 ? Math.sin((0.06 - this.cycleT) / 0.06 * Math.PI) * 0.03 : 0);
+    // 泵动：开火后 0.2s 后拉、0.3–0.4s 停在后位抛壳、0.5s 推回（与合成音效对齐）
     if (this.pumpT > 0) { this.pumpT -= dt; }
-    if (v.pump) { const k = this.pumpT > 0 && this.pumpT < 0.4 ? Math.sin((0.4 - this.pumpT) / 0.4 * Math.PI) : 0; v.pump.position.z = v.pumpZ + k * 0.09; }
+    let pumpK = 0;
+    if (v.pump && this.pumpT > 0) { const t = 0.55 - this.pumpT; pumpK = seg(t, 0.2, 0.29) * (1 - seg(t, 0.4, 0.5)); }
+    if (v.pump) { v.pump.position.z = v.pump0.z - pumpK * 0.085; lt.z += pumpK * 0.085; }
+        if (v.handShell) v.handShell.visible = handShell;
+    if (v.heldMag) {
+      const showHeld = this.reloading > 0 && !d.perShell && rp >= 0.12 && rp < 0.5;
+      v.heldMag.visible = showHeld;
+      if (showHeld) {
+        const hold = (v.lh || lt).clone().add(new THREE.Vector3(0.01, -0.045, 0.02));
+        v.heldMag.position.copy(hold);
+        v.heldMag.rotation.set(0.15, 0.08, 0.35);
+      }
+    }
+    // 左手位置做阻尼，避免各段之间跳变
+    if (!v.lh) v.lh = lt.clone();
+    v.lh.x = damp(v.lh.x, lt.x, 16, dt); v.lh.y = damp(v.lh.y, lt.y, 16, dt); v.lh.z = damp(v.lh.z, lt.z, 16, dt);
+    if (pumpK > 0) v.lh.z = Math.max(v.lh.z, lt.z - 0.004);
     // 切枪：下沉再抬起
-    if (this.switchT > 0) { const k = this.switchT > 0.25 ? (0.5 - this.switchT) / 0.25 : this.switchT / 0.25; p.y -= k * 0.3; rx -= k * 0.6; }
+    if (this.switchT > 0) { const raw = this.switchT > 0.25 ? (0.5 - this.switchT) / 0.25 : this.switchT / 0.25; const k = raw * raw * (3 - 2 * raw); p.y -= k * 0.3; rx -= k * 0.6; }
     // 近战：枪托横扫
     if (this.meleeT > 0) {
       this.meleeT -= dt; const k = Math.sin(Math.min(1, (0.45 - this.meleeT) / 0.45) * Math.PI);
@@ -242,12 +302,15 @@ export class Weapon {
       const t = (0.6 - this.throwT) / 0.6;
       if (t < 0.55) { this.grenadeMesh.visible = true; this.grenadeMesh.position.set(-0.18 + t * 0.2, -0.16 + t * 0.25, -0.32 - t * 0.2); this.grenadeMesh.rotation.set(t * 3, 0, 0.3); }
     }
-    this.squeeze = damp(this.squeeze, 0, 6.5, dt);
-    const pumpK = v.pump && this.pumpT > 0 && this.pumpT < 0.4 ? Math.sin((0.4 - this.pumpT) / 0.4 * Math.PI) : 0;
-    this._applyHands(v, this.squeeze, this.reloading > 0 ? this.reloadProgress() : 0, pumpK);
-    v.g.position.copy(p);
-    v.g.rotation.set(rx, ry, rz);
-    this.sway.x = damp(this.sway.x, 0, 6, dt); this.sway.y = damp(this.sway.y, 0, 6, dt);
+    this.squeeze = damp(this.squeeze, 0, 7.5, dt);
+    if (this.squeeze < 0.002) this.squeeze = 0;
+    this._applyHands(v, this.squeeze, v.lh);
+    if (!v.gp) { v.gp = p.clone(); v.gr = new THREE.Vector3(rx, ry, rz); }
+    v.gp.x = damp(v.gp.x, p.x, 18, dt); v.gp.y = damp(v.gp.y, p.y, 18, dt); v.gp.z = damp(v.gp.z, p.z, 18, dt);
+    v.gr.x = damp(v.gr.x, rx, 18, dt); v.gr.y = damp(v.gr.y, ry, 18, dt); v.gr.z = damp(v.gr.z, rz, 18, dt);
+    v.g.position.copy(v.gp);
+    v.g.rotation.set(v.gr.x, v.gr.y, v.gr.z);
+    this.sway.x = damp(this.sway.x, 0, 7, dt); this.sway.y = damp(this.sway.y, 0, 7, dt);
     this.holder.position.copy(this.camera.position);
     this.holder.quaternion.copy(this.camera.quaternion);
     // 弹壳
@@ -286,35 +349,53 @@ export class Weapon {
     const hl = inner.getObjectByName('handL');
     if (hr) g.attach(hr);
     if (hl) g.attach(hl);
-    const rifle = view.def.id === 'rifle';
+    const C = HAND_CFG[view.def.id];
+    const V = (a) => new THREE.Vector3(...a);
     const fixCurl = (root) => root && root.traverse((o) => {
       // 建模时屈伸绕 +X 朝向了手背，这里翻成向掌心握紧
       if (/^(f[RL]\d(b|bb)?|th[RL]b?)$/.test(o.name)) o.rotation.x = -o.rotation.x;
     });
-    fixCurl(hr); fixCurl(hl);
+    // 袖管 / 前臂收细，袖口不再显得臃肿
     const slim = (root, side) => {
-      for (const n of ['sleeve','muscle','flexor','cuff','wrist']) {
+      for (const [n, k] of [['sleeve', 0.48], ['cuff', 0.48], ['muscle', 0.56], ['flexor', 0.56], ['wrist', 0.62]]) {
         const o = root.getObjectByName(n + side);
-        if (o) o.scale.set(0.62, 1, 0.62);
+        if (o) o.scale.set(k, 1, k);
       }
     };
-    if (hr) {
-      // 右手：手背朝右露出指节，掌心贴握把右侧，手指向下扣把
-      hr.position.set(0.068, rifle ? -0.116 : -0.108, rifle ? 0.110 : 0.100);
-      this._axesFromFinger(hr, new THREE.Vector3(0.3, -1, 0.12), new THREE.Vector3(0.85, 0.2, 0.45));
-      const arm = hr.getObjectByName('armR');
-      if (arm) arm.rotation.x = -0.95;
-      slim(hr, 'R');
-    }
-    if (hl) {
-      // 左手贴紧护木，手背朝左上，手指从下方包住
-      hl.position.set(-0.010, rifle ? -0.032 : -0.038, rifle ? -0.362 : -0.296);
-      this._axesFromFinger(hl, new THREE.Vector3(0.7, -0.7, 0.1), new THREE.Vector3(-0.65, 0.5, 0.45));
-      const arm = hl.getObjectByName('armL');
-      if (arm) arm.rotation.x = -0.85;
-      slim(hl, 'L');
-    }
+    const pose = (root, side, c, anchor) => {
+      fixCurl(root);
+      // 手模型左右几何是对调的（拇指在外侧），镜像 X 让拇指回到正确一侧
+      root.scale.set(-1, 1, 1);
+      root.position.copy(anchor).add(V(c.off));
+      this._axesFromFinger(root, V(c.finger), V(c.dorsal));
+      // 前臂朝向（g 空间方向 → 手局部），腕部自然折角
+      const arm = root.getObjectByName('arm' + side);
+      if (arm) {
+        arm.position.z = c.wrist ?? 0.036; // 腕关节前移，弯腕时手掌与前臂不脱节
+        const dir = V(c.arm).normalize().applyQuaternion(root.quaternion.clone().invert());
+        dir.x = -dir.x; // 抵消镜像
+        arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+      }
+      // 手指逐节扣紧（c.curl[i] = [近节, 中节, 远节] 追加屈曲）
+      for (let i = 0; i < 4; i++) {
+        const cu = c.curl[i];
+        ['', 'b', 'bb'].forEach((sfx, j) => { const o = root.getObjectByName(`f${side}${i}${sfx}`); if (o) { if (c.spread) o.rotation.y = 0; o.rotation.x -= cu[j]; } });
+      }
+      const th = root.getObjectByName('th' + side), thb = root.getObjectByName('th' + side + 'b');
+      if (th && c.thumb) { th.rotation.x -= c.thumb[0]; th.rotation.y += (side === 'R' ? 1 : -1) * c.thumb[1]; }
+      if (thb && c.thumb) thb.rotation.x -= c.thumb[2];
+      slim(root, side);
+    };
+    if (hr) { view.offR = V(C.R.off); pose(hr, 'R', C.R, view.anchor.gripR); }
+    if (hl) { view.offL = V(C.L.off); pose(hl, 'L', C.L, view.anchor.gripL); }
     view.hands = this._bindHands(hr, hl);
+    if (view.mag && hl) {
+      const hm = view.mag.clone();
+      hm.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+      hm.visible = false;
+      view.g.add(hm);
+      view.heldMag = hm;
+    }
   }
 
   _bindHands(hr, hl) {
@@ -334,67 +415,69 @@ export class Weapon {
     return nodes;
   }
 
-  _applyHands(view, squeeze, rp, pumpK) {
+  _applyHands(view, squeeze, lh) {
     const H = view.hands; if (!H) return;
     const set = (n, dx = 0, dy = 0, dz = 0) => { const h = H[n]; if (h) h.o.rotation.set(h.rx + dx, h.ry + dy, h.rz + dz); };
     const k = squeeze;
     for (const side of ['R', 'L']) {
       for (let i = 0; i < 4; i++) {
         const a = (i === 0 ? 0.16 : 0.26) * k;
-        set(`f${side}${i}`, a * 0.7);
-        set(`f${side}${i}b`, a);
-        set(`f${side}${i}bb`, a * 0.8);
+        set(`f${side}${i}`, -a * 0.5);
+        set(`f${side}${i}b`, -a * 0.6);
+        set(`f${side}${i}bb`, -a * 0.4);
       }
-      set('th' + side, 0.12 * k, 0.05 * k, 0);
-      set('th' + side + 'b', 0.16 * k);
+      set('th' + side, -0.08 * k, 0, 0);
+      set('th' + side + 'b', -0.1 * k);
       const arm = H['arm' + side];
       if (arm) arm.o.scale.set(arm.sx * (1 + 0.11 * k), arm.sy * (1 + 0.03 * k), arm.sz * (1 + 0.1 * k));
       const palm = H['palm' + side];
       if (palm) palm.o.scale.set(palm.sx * (1 + 0.035 * k), palm.sy * (1 + 0.02 * k), palm.sz * (1 + 0.055 * k));
     }
     const hL = H.handL;
-    if (hL) {
-      let ox = 0, oy = 0, oz = 0;
-      if (rp > 0 && view.def.id === 'rifle') {
-        const t = Math.sin(rp * Math.PI);
-        oy -= t * 0.07; oz += t * 0.12; ox += t * 0.02;
-      }
-      if (rp > 0 && view.def.id === 'shotgun') {
-        const t = Math.sin(rp * Math.PI);
-        oy -= t * 0.03; oz += t * 0.06;
-      }
-      if (pumpK > 0) oz -= pumpK * 0.09;
-      hL.o.position.set(hL.px + ox, hL.py + oy, hL.pz + oz);
-    }
+    if (hL && lh) hL.o.position.copy(lh).add(view.offL);
   }
 
   _setupScope(view, dot) {
     if (!dot) return;
     if (!this.scopeRT) {
       this.scopeRT = new THREE.WebGLRenderTarget(448, 448, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, type: THREE.HalfFloatType });
-      this.scopeCam = new THREE.PerspectiveCamera(22, 1, 0.25, 1200);
+      this.scopeCam = new THREE.PerspectiveCamera(52, 1, 0.25, 1200);
     }
     const VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
     const FRAG = `
       uniform sampler2D tScope; uniform float uFade; varying vec2 vUv;
+      float sdRound(vec2 p, vec2 b, float r) {
+        vec2 q = abs(p) - b + r;
+        return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+      }
       void main() {
-        vec2 c = vUv - 0.5; float r = length(c);
-        if (r > 0.5) discard;
-        vec3 col = texture2D(tScope, vUv).rgb;
-        float vig = smoothstep(0.5, 0.28, r);
-        col *= vec3(0.88, 1.0, 0.90) * mix(0.5, 1.06, vig);
-        gl_FragColor = vec4(col, uFade);
+        vec2 p = vUv - 0.5;
+        float d = sdRound(p, vec2(0.495, 0.495), 0.07);
+        if (d > 0.0) discard;
+        vec3 scene = texture2D(tScope, vUv).rgb;
+        vec3 glass = vec3(0.22, 0.32, 0.34);
+        vec3 col = mix(glass, scene, 0.88);
+        col = mix(col * 0.85, col, uFade);
+        vec2 q = vec2(p.x * 1.30, p.y);
+        float r = length(q);
+        float ring = smoothstep(0.016, 0.007, abs(r - 0.13));
+        float core = smoothstep(0.022, 0.0, r);
+        vec3 ret = vec3(1.0, 0.16, 0.08);
+        float glow = (ring * 0.9 + core * 1.15) * mix(0.15, 1.0, uFade);
+        col += ret * glow;
+        float edge = 1.0 - smoothstep(-0.02, 0.0, d);
+        float a = mix(0.42, 0.94, uFade) * edge;
+        gl_FragColor = vec4(col, a);
       }`;
     const unis = { tScope: { value: this.scopeRT.texture }, uFade: { value: 0 } };
-    const mat = new THREE.ShaderMaterial({ uniforms: unis, vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: true, side: THREE.DoubleSide });
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(0.0205, 32), mat);
-    // glTF 中 +Z 为枪口；parent 已绕 Y 转 π，再把片子转过来正对相机，放在前方镜片处，形成“从镜筒里看放大画面”
-    disc.position.set(0, 0, 0.054); disc.rotation.y = Math.PI;
+    const mat = new THREE.ShaderMaterial({ uniforms: unis, vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    const disc = new THREE.Mesh(new THREE.PlaneGeometry(0.033, 0.025), mat);
+    disc.position.set(0, 0, 0.006); disc.rotation.y = Math.PI;
     dot.add(disc);
-    const glass = new THREE.Mesh(new THREE.CircleGeometry(0.0212, 32), new THREE.MeshStandardMaterial({
-      color: 0x7a9aaa, roughness: 0.06, metalness: 0.12, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 0.8
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.034, 0.026), new THREE.MeshStandardMaterial({
+      color: 0x6a8a96, roughness: 0.08, metalness: 0.08, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 0.7
     }));
-    glass.position.set(0, 0, 0.050); glass.rotation.y = Math.PI;
+    glass.position.set(0, 0, 0.003); glass.rotation.y = Math.PI;
     dot.add(glass);
     view.scopeDisc = disc; view.scopeFade = unis.uFade;
   }
@@ -403,12 +486,14 @@ export class Weapon {
     const v = this.views && this.views[this.cur];
     if (!v || !this.scopeRT) return;
     const ads = this.ads;
-    if (v.scopeFade) v.scopeFade.value = Math.max(0, Math.min(1, (ads - 0.22) / 0.55));
-    if (v.scopeDisc) v.scopeDisc.visible = ads > 0.2;
-    if (ads < 0.2) return;
+    const fade = Math.max(0, Math.min(1, (ads - 0.15) / 0.55));
+    if (v.scopeFade) v.scopeFade.value = fade;
+    if (v.scopeDisc) v.scopeDisc.visible = true;
+    if (ads < 0.12) return;
     this.scopeCam.position.copy(camera.position);
     this.scopeCam.quaternion.copy(camera.quaternion);
-    this.scopeCam.fov = 22;
+    this.scopeCam.fov = camera.fov / 1.4;
+    this.scopeCam.aspect = 0.033 / 0.025;
     this.scopeCam.far = camera.far;
     this.scopeCam.updateProjectionMatrix();
     const prev = renderer.getRenderTarget();
