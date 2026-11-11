@@ -211,8 +211,8 @@ export class PostFX {
       shafts: { value: 0.85 },
       lift: { value: new THREE.Vector3(0.006, 0.010, 0.016) },
       gain: { value: new THREE.Vector3(1.03, 1.0, 0.97) },
-      contrast: { value: 1.12 },
-      saturation: { value: 0.82 }
+      contrast: { value: 1.2 },
+      saturation: { value: 0.74 }
     };
     this.compMat = fsMat(COMP, this.uComp);
     this.compMat.toneMapped = false;

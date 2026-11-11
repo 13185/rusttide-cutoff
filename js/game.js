@@ -48,7 +48,7 @@ export class Game {
     this.renderer.autoClear = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.fov, innerWidth / innerHeight, 0.05, 1200);
-    this.sunDir = new THREE.Vector3(0.24, 0.09, -1).normalize();
+    this.sunDir = new THREE.Vector3(0.13, 0.085, -1).normalize();
     this.scene.fog = new THREE.FogExp2(0x6c7178, 0.0085);
     this.input = new Input(canvas);
     this.audio = new Audio();
@@ -105,7 +105,7 @@ export class Game {
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
     this.scene.add(sun, sun.target);
     this.sun = sun;
-    this.hemi = new THREE.HemisphereLight(0xa9bad2, 0x5e5448, 2.6);
+    this.hemi = new THREE.HemisphereLight(0xa9bad2, 0x5e5448, 2.0);
     this.scene.add(this.hemi);
   }
   _env() {
