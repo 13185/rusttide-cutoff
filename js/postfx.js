@@ -16,7 +16,7 @@ uniform float threshold;
 void main() {
   vec3 c = texture2D(tDiffuse, vUv).rgb;
   vec3 s = max(c - threshold, 0.0);
-  gl_FragColor = vec4(s * 0.85, 1.0);
+  gl_FragColor = vec4(s * 1.12, 1.0);
 }`;
 
 const BLUR = `
@@ -25,7 +25,7 @@ uniform sampler2D tDiffuse;
 uniform vec2 direction;
 uniform vec2 resolution;
 void main() {
-  vec2 off = direction / resolution * 1.35;
+  vec2 off = direction / resolution;
   vec3 sum = texture2D(tDiffuse, vUv).rgb * 0.227027;
   sum += texture2D(tDiffuse, vUv + off * 1.3846).rgb * 0.316216;
   sum += texture2D(tDiffuse, vUv - off * 1.3846).rgb * 0.316216;
@@ -49,6 +49,7 @@ uniform vec3 lift;
 uniform vec3 gain;
 uniform float contrast;
 uniform float saturation;
+uniform float sharpen;
 uniform vec2 resolution;
 
 vec3 aces(vec3 x) {
@@ -62,28 +63,22 @@ vec3 aces(vec3 x) {
 
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
-vec3 fxaa(sampler2D tex, vec2 uv) {
+// 轻度反锐化遮罩：恢复降锐度之前的清晰度，避免 FXAA 把边缘抹平
+vec3 unsharp(sampler2D tex, vec2 uv, float amt) {
   vec2 px = 1.0 / resolution;
-  vec3 rgbN = texture2D(tex, uv + vec2(0.0, px.y)).rgb;
-  vec3 rgbS = texture2D(tex, uv - vec2(0.0, px.y)).rgb;
-  vec3 rgbE = texture2D(tex, uv + vec2(px.x, 0.0)).rgb;
-  vec3 rgbW = texture2D(tex, uv - vec2(px.x, 0.0)).rgb;
-  vec3 rgbM = texture2D(tex, uv).rgb;
-  float lM = luma(rgbM), lN = luma(rgbN), lS = luma(rgbS), lE = luma(rgbE), lW = luma(rgbW);
-  float lMin = min(lM, min(min(lN, lS), min(lE, lW)));
-  float lMax = max(lM, max(max(lN, lS), max(lE, lW)));
-  if (lMax - lMin < 0.08) return rgbM;
-  vec2 dir = vec2((lN + lS) - (lE + lW), (lE + lW) - (lN + lS));
-  float dirR = inversesqrt(max(dot(dir, dir), 1e-5));
-  dir *= dirR * px;
-  vec3 c1 = 0.5 * (texture2D(tex, uv + dir).rgb + texture2D(tex, uv - dir).rgb);
-  vec3 c2 = c1 * 0.5 + 0.25 * (texture2D(tex, uv + dir * 2.0).rgb + texture2D(tex, uv - dir * 2.0).rgb);
-  float lC = luma(c2);
-  return (lC < lMin || lC > lMax) ? c1 : c2;
+  vec3 c = texture2D(tex, uv).rgb;
+  if (amt < 0.001) return c;
+  vec3 b = (
+    texture2D(tex, uv + vec2(px.x, 0.0)).rgb +
+    texture2D(tex, uv - vec2(px.x, 0.0)).rgb +
+    texture2D(tex, uv + vec2(0.0, px.y)).rgb +
+    texture2D(tex, uv - vec2(0.0, px.y)).rgb
+  ) * 0.25;
+  return c + (c - b) * amt;
 }
 
 void main() {
-  vec3 col = fxaa(tDiffuse, vUv) * exposure;
+  vec3 col = unsharp(tDiffuse, vUv, sharpen) * exposure;
   col += texture2D(tBloom, vUv).rgb * bloomStr;
 
   if (shafts > 0.001 && sunPos.x > -0.2 && sunPos.x < 1.2) {
@@ -100,18 +95,19 @@ void main() {
       decay *= 0.78;
     }
     float fall = smoothstep(1.1, 0.05, dist);
-    col += vec3(0.92, 0.78, 0.58) * acc * 0.016 * shafts * fall;
+    col += vec3(1.0, 0.72, 0.42) * acc * 0.020 * shafts * fall;
   }
 
   col = mix(vec3(luma(col)), col, saturation);
   col = (col - 0.5) * contrast + 0.5;
   col = col * gain + lift;
   col = aces(col);
+  col = pow(col, vec3(0.95));
 
   vec2 vc = vUv * (1.0 - vUv);
   float vig = vc.x * vc.y * 16.0;
   vig = pow(clamp(vig, 0.0, 1.0), vignette);
-  col *= mix(0.92, 1.0, vig);
+  col *= mix(0.88, 1.0, vig);
 
   float n = fract(sin(dot(vUv * resolution + time * 5.1, vec2(12.9898, 78.233))) * 43758.5453);
   float n2 = fract(sin(dot(vUv * resolution * 0.5 + time * 2.3, vec2(39.346, 11.135))) * 23421.631);
@@ -206,7 +202,7 @@ export class PostFX {
     this.fsCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.fsScene.add(this.quad);
 
-    this.uBright = { tDiffuse: { value: null }, threshold: { value: 0.82 } };
+    this.uBright = { tDiffuse: { value: null }, threshold: { value: 0.88 } };
     this.brightMat = fsMat(BRIGHT, this.uBright);
     this.uBlur = { tDiffuse: { value: null }, direction: { value: new THREE.Vector2(1, 0) }, resolution: { value: new THREE.Vector2(bw, bh) } };
     this.blurMat = fsMat(BLUR, this.uBlur);
@@ -222,17 +218,18 @@ export class PostFX {
     this.uComp = {
       tDiffuse: { value: null },
       tBloom: { value: null },
-      bloomStr: { value: 0.30 },
+      bloomStr: { value: 0.42 },
       time: { value: 0 },
-      grain: { value: 0.032 },
-      vignette: { value: 0.14 },
+      grain: { value: 0.028 },
+      vignette: { value: 0.18 },
       exposure: { value: 1.0 },
       sunPos: { value: new THREE.Vector2(0.2, 0.72) },
       shafts: { value: 0.85 },
-      lift: { value: new THREE.Vector3(0.004, 0.010, 0.020) },
-      gain: { value: new THREE.Vector3(0.98, 1.0, 1.04) },
-      contrast: { value: 1.05 },
-      saturation: { value: 0.80 },
+      lift: { value: new THREE.Vector3(0.006, 0.010, 0.016) },
+      gain: { value: new THREE.Vector3(1.03, 1.0, 0.97) },
+      contrast: { value: 1.18 },
+      saturation: { value: 0.78 },
+      sharpen: { value: 0.34 },
       resolution: { value: new THREE.Vector2(1280, 720) }
     };
     this.compMat = fsMat(COMP, this.uComp);
@@ -245,12 +242,13 @@ export class PostFX {
     this.quality = q;
     const high = q === 'high';
     const low = q === 'low';
-    this.uComp.bloomStr.value = low ? 0.0 : high ? 0.32 : 0.24;
-    this.uComp.grain.value = low ? 0.016 : 0.034;
-    this.uComp.shafts.value = low ? 0.0 : high ? 0.7 : 0.5;
+    this.uComp.bloomStr.value = low ? 0.0 : high ? 0.44 : 0.34;
+    this.uComp.grain.value = low ? 0.012 : 0.028;
+    this.uComp.shafts.value = low ? 0.0 : high ? 0.88 : 0.62;
+    this.uComp.sharpen.value = low ? 0.18 : high ? 0.36 : 0.28;
     this.doBloom = !low;
     this.doSSAO = !low;
-    this.uSSAO.strength.value = high ? 0.55 : 0.4;
+    this.uSSAO.strength.value = high ? 0.85 : 0.6;
   }
 
   setSize(w, h) {

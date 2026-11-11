@@ -52,7 +52,7 @@ export class Game {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.fov, innerWidth / innerHeight, 0.05, 1200);
     this.sunDir = new THREE.Vector3(0.13, 0.085, -1).normalize();
-    this.scene.fog = new THREE.FogExp2(0x687078, 0.0068);
+    this.scene.fog = new THREE.FogExp2(0x6c7178, 0.0080);
     this.input = new Input(canvas);
     this.audio = new Audio();
     this.stats = { shots: 0, hits: 0, weak: 0, kills: 0, time: 0 };
@@ -92,7 +92,7 @@ export class Game {
     this.input.onLockChange = (l) => this._onLock(l);
     this.post = new PostFX(this.renderer, { quality: 'high' });
     this.post.uSSAO.cameraFar.value = 1200;
-    this.post.uComp.exposure.value = 1.22;
+    this.post.uComp.exposure.value = 1.42;
     this.pickups = [];
     await step('正在准备首帧画面', 0.95);
     this.applyQuality(this.quality);
@@ -567,7 +567,7 @@ export class Game {
     if (this.mode === 'dead' || this.mode === 'win' || this.mode === 'title') this.enemies.update(dt * (this.mode === 'title' ? 0 : 1), this.player, this.time);
     this.world.update(dt, this.time, this.camera);
     this.sky.update(this.time, this.camera.position);
-    this.rain.update(dt, this.camera);
+    this.rain.update(dt, this.camera, this.world);
     // 阴影相机跟随
     const cp = this.camera.position;
     this.sun.target.position.set(cp.x, 0, cp.z); this.sun.position.set(cp.x + this.sunDir.x * 150, this.sunDir.y * 150 + 20, cp.z + this.sunDir.z * 150);

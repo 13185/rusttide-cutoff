@@ -455,6 +455,29 @@ export class World {
     return g;
   }
 
+  // 三号货栈 shed(61, 0, 22, 34, 11)：西侧卷帘门以内、屋檐以下
+  isIndoors(x, y, z) {
+    return x > 50.2 && x < 72.15 && z > -16.95 && z < 16.95 && y > -0.2 && y < 11.15;
+  }
+
+  /** 从图集切一块正向平面（u/y 为像素，y 自上而下）。正面朝 +Z，需要朝外时由调用方旋转。 */
+  _atlasDecal(u0, y0, u1, y1, w, h) {
+    const t = A.tex.decals.clone();
+    t.repeat.set((u1 - u0) / 2048, (y1 - y0) / 2048);
+    t.offset.set(u0 / 2048, 1 - y1 / 2048);
+    t.needsUpdate = true;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    const mat = new THREE.MeshStandardMaterial({
+      map: t, roughness: 0.55, metalness: 0.08, side: THREE.FrontSide,
+      envMapIntensity: 0.4, color: 0xffffff,
+      emissive: new THREE.Color(0xffffff), emissiveMap: t, emissiveIntensity: 0.28
+    });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    m.castShadow = false; m.receiveShadow = false;
+    return m;
+  }
+
 
   _bannerMap(row) {
     const t = A.tex.decals.clone();
@@ -528,14 +551,13 @@ export class World {
         const mesh = new THREE.Mesh(p.geometry, matC[p.mat] || navy);
         mesh.castShadow = mesh.receiveShadow = true; g.add(mesh);
       }
-      const side = instance('yardprops', 'hcd_side', this.matFor);
-      side.position.set(0.2, 1.35, 1.23); side.rotation.y = Math.PI; side.scale.x = -1; g.add(side);
-      const side2 = instance('yardprops', 'hcd_side', this.matFor);
-      side2.position.set(0.2, 1.35, -1.23); side2.scale.x = -1; g.add(side2);
-      side.traverse((o) => { if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.side = THREE.FrontSide; } });
-      side2.traverse((o) => { if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.side = THREE.FrontSide; } });
-      const door = instance('yardprops', 'hcd_door', this.matFor);
-      door.position.set(6.12, 1.3, 0); g.add(door);
+      // 运行时正向平面，避免 Blender 盒体贴花 UV / 负缩放镜像
+      const sideP = this._atlasDecal(0, 1024, 1536, 1536, 6.0, 1.55);
+      sideP.position.set(0.15, 1.38, 1.245); g.add(sideP);
+      const sideN = this._atlasDecal(0, 1024, 1536, 1536, 6.0, 1.55);
+      sideN.position.set(0.15, 1.38, -1.245); sideN.rotation.y = Math.PI; g.add(sideN);
+      const door = this._atlasDecal(1536, 1024, 2048, 1536, 1.9, 1.9);
+      door.position.set(6.14, 1.32, 0); door.rotation.y = Math.PI / 2; g.add(door);
       g.position.set(x, 0, z); g.rotation.y = yaw; this.root.add(g);
       const c = Math.abs(Math.cos(yaw)), s = Math.abs(Math.sin(yaw));
       const hx = 6.2 * c + 1.3 * s, hz = 6.2 * s + 1.3 * c;
@@ -550,8 +572,8 @@ export class World {
     const crates = [[47.2, 12.4, 0, 0.75], [47.2, 12.4, 0.05, 1.35], [48.5, 13.3, 0.2, 0.75], [48.4, 13.2, 0, 1.35], [46.3, 12.5, 0.3, 0.15]];
     this._instParts('crate', crates, [0.5, 0.4, 0.6]);
     crates.forEach(([x, z, ry, y]) => {
-      const d = instance('yardprops', 'hcd_crate', this.matFor);
-      d.position.set(x, (y || 0) + 0.4, z + (Math.cos(ry) * 0.36));
+      const d = this._atlasDecal(0, 1536, 1024, 1792, 0.85, 0.28);
+      d.position.set(x, (y || 0) + 0.42, z + Math.cos(ry) * 0.38);
       d.rotation.y = ry; this.root.add(d);
     });
     this._instParts('carton', [[46.4, 11.4, 0.2, 0], [46.4, 11.4, 0.1, 0.4], [46.9, 11.5, 0.4, 0], [47.8, 11.15, 0, 0.15], [45.6, 12.8, 0.2]], [0.35, 0.25, 0.4]);
@@ -566,10 +588,10 @@ export class World {
     // 厢货（华晨达），停在仓库南侧，不挡门
     const truck = this._put('truck', 52.5, -13.5, Math.PI / 2);
     this.addBox(49.2, 55.8, -14.8, -12.2, 2.6);
-    const td = instance('yardprops', 'hcd_truck', this.matFor);
-    td.position.set(1.16, 1.45, 1.15); truck.add(td);
-    const td2 = instance('yardprops', 'hcd_truck', this.matFor);
-    td2.position.set(-1.16, 1.45, 1.15); td2.rotation.y = Math.PI; truck.add(td2);
+    const td = this._atlasDecal(1024, 1536, 2048, 1792, 3.5, 1.15);
+    td.position.set(0, 1.5, 1.16); truck.add(td);
+    const td2 = this._atlasDecal(1024, 1536, 2048, 1792, 3.5, 1.15);
+    td2.position.set(0, 1.5, -1.16); td2.rotation.y = Math.PI; truck.add(td2);
 
     // 指示牌
     this._put('sign_hcd_a', 6.4, 21.0, -Math.PI / 2);
@@ -586,7 +608,7 @@ export class World {
     ], [0.22, 0.22, 0.75]);
     this._instParts('impact', [[4.5, 46.5, 0], [-4.4, 46.8, 0], [9.2, -48, 0.1], [48, 6.5, 0], [-16, 50, 0]], [0.35, 0.35, 1.0]);
     this._instParts('bollard', [[5.0, 58, 0], [-5.0, 58, 0], [5.0, -36, 0], [-5.0, -36, 0], [50.2, -10, 0], [50.2, 8, 0]], [0.18, 0.18, 0.9]);
-    this._instParts('drum', [[-29.5, 39.2, 0.2], [-29.0, 40.0, 0], [44.2, 5.1, 0.4], [12.2, 37.4, 0], [45.4, 13.6, 0.3], [70.2, -12.4, 0]], [0.35, 0.35, 0.9]);
+    this._instParts('drum', [[-29.5, 39.2, 0.2], [-29.0, 40.0, 0], [44.2, 5.1, 0.4], [12.2, 37.4, 0], [45.4, 13.6, 0.3], [70.2, -12.4, 0], [-28.8, 39.5, 0.5], [12.8, 37.0, 0.35]], [0.35, 0.35, 0.9]);
     this._instParts('drum_plas', [[-30.2, 39.8, 0.1], [44.8, 4.4, 0], [70.8, -12.4, 0.2], [55.6, 12.5, 0]], [0.35, 0.35, 0.9]);
     this._instParts('ibc', [[45.5, 14.6, 0.1], [-31.2, 38.6, 0.2], [70.4, -10.6, 0], [13.4, 37.6, 0.15]], [0.65, 0.55, 1.2]);
     this._instParts('reel', [[-32, 41, 0.4], [14.6, -31, 0], [49, 15.5, 0.2]], [0.7, 0.55, 1.2]);
@@ -622,36 +644,33 @@ export class World {
     const racks = [[69.5, -10, Math.PI / 2], [69.5, 0, Math.PI / 2], [69.5, 10, Math.PI / 2],
       [57, 15.2, 0], [63, 15.2, 0], [57, -15.2, Math.PI], [63, -15.2, Math.PI]];
     this._instParts('rack', racks, [1.3, 0.55, 3.2]);
+    // 加两排货架，避开门口到后墙的中间通道 |z|<3.5
+    this._instParts('rack', [[69.5, -5, Math.PI / 2], [69.5, 5, Math.PI / 2], [60, 15.2, 0], [60, -15.2, Math.PI]], [1.3, 0.55, 3.2]);
     this._put('bench', 53.5, -14.2, 0.1);
     this.addBox(52.5, 54.5, -14.7, -13.7, 1.0);
     this._instParts('pipes', [[68, -8, 0, 8.6], [68, 6, 0.2, 8.6], [55, 14.8, Math.PI / 2, 8.4]], null);
     this._instParts('elecbox', [[70.6, -14, -Math.PI / 2, 1.2], [70.6, 14, -Math.PI / 2, 1.2]], [0.3, 0.15, 1.2]);
-    this._instParts('pallet_stack', [[54, 13.5, 0.2], [66, -12, 0.4]], [0.7, 0.6, 0.75]);
-    this._instParts('ibc', [[66.5, 12.8, 0.1], [54.2, -12.6, 0]], [0.65, 0.55, 1.2]);
-    this._instParts('drum', [[55.2, -13.4, 0], [55.8, -13.1, 0.3], [66.8, 11.8, 0.2]], [0.35, 0.35, 0.9]);
-    this._instParts('carton', [[54.4, 12.6, 0.2, 0], [54.4, 12.6, 0, 0.4], [65.5, -11.2, 0.3]], [0.35, 0.25, 0.4]);
-    // 室内叉车
-    this._put('forklift', 58.5, 4.2, -0.4);
-    this.addBox(57.3, 59.7, 2.4, 6.2, 2.2);
+    this._instParts('pallet_stack', [[54, 13.5, 0.2], [66, -12, 0.4], [67.5, 13.2, 0], [54.5, -13.6, 0.3]], [0.7, 0.6, 0.75]);
+    this._instParts('ibc', [[66.5, 12.8, 0.1], [54.2, -12.6, 0], [68.2, -14.4, 0.15]], [0.65, 0.55, 1.2]);
+    this._instParts('drum', [[55.2, -13.4, 0], [55.8, -13.1, 0.3], [66.8, 11.8, 0.2], [67.4, 11.5, 0], [68.0, 11.9, 0.25], [54.8, 14.4, 0.2]], [0.35, 0.35, 0.9]);
+    this._instParts('drum_plas', [[55.4, 14.0, 0], [66.2, -14.6, 0.15], [67.0, -14.2, 0]], [0.35, 0.35, 0.9]);
+    this._instParts('carton', [
+      [54.4, 12.6, 0.2, 0], [54.4, 12.6, 0, 0.4], [65.5, -11.2, 0.3],
+      [69.0, -10.2, 0, 0.2], [69.0, -10.2, 0.1, 0.6], [69.2, 0.0, 0.2, 0.2],
+      [69.0, 10.2, 0, 0.2], [57.2, 14.6, 0.2, 0], [57.2, 14.6, 0, 0.4],
+      [63.2, -14.6, 0.15, 0], [63.2, -14.6, 0, 0.4], [54.8, -14.0, 0.3, 0.15]
+    ], [0.35, 0.25, 0.4]);
+    this._instParts('pallet', [[54.2, 11.6, 0], [66.4, 13.6, 0.2], [66.8, -13.2, 0.1], [55.6, 13.8, 0.3]], [0.65, 0.55, 0.16]);
+    // 室内叉车靠北侧货架，不挡门口直线
+    this._put('forklift', 58.5, 8.6, -0.35);
+    this.addBox(57.3, 59.7, 6.8, 10.6, 2.2);
 
-    // 大门射入的体积光与尘雾
-    const spot = new THREE.SpotLight(0xffe0b0, 48, 28, 0.55, 0.65, 1.15);
-    spot.position.set(48.5, 7.2, 0); spot.target.position.set(62, 0.4, 0);
+    // 大门射灯：只留 Spotlight + 门口微光精灵，不再放几何锥体/硬边体积光网格
+    const spot = new THREE.SpotLight(0xffe0b0, 56, 30, 0.62, 0.82, 1.05);
+    spot.position.set(49.2, 7.4, 0); spot.target.position.set(63, 0.2, 0);
     this.root.add(spot); this.root.add(spot.target);
-    const volGeo = new THREE.CylinderGeometry(0.5, 6.5, 20, 24, 1, true);
-    const volMat = new THREE.MeshBasicMaterial({
-      color: 0xffe2b8, transparent: true, opacity: 0.04, blending: THREE.AdditiveBlending,
-      depthWrite: false, side: THREE.DoubleSide, fog: true
-    });
-    const vol = new THREE.Mesh(volGeo, volMat);
-    vol.position.set(60, 4.2, 0); vol.rotation.z = Math.PI / 2;
-    this.root.add(vol); this.refl.hidden.push(vol);
-    const dust = new THREE.Mesh(new THREE.PlaneGeometry(14, 8), new THREE.MeshBasicMaterial({
-      color: 0xe8d2a8, transparent: true, opacity: 0.045, blending: THREE.AdditiveBlending,
-      depthWrite: false, side: THREE.DoubleSide, fog: true
-    }));
-    dust.position.set(58, 3.2, 0); dust.rotation.y = Math.PI / 2;
-    this.root.add(dust); this.refl.hidden.push(dust);
+    this._lampGlow(50.4, 6.8, 0, 0xffe2b8, 4.2, false, 0.7);
+    this._lampGlow(56, 2.4, 0, 0xe8d2a8, 6.5, true, 0.35);
   }
 
   _relays() {

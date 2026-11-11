@@ -169,7 +169,7 @@ export class Rain {
     this.t = 0;
   }
   setCount(n) { this.active = Math.min(this.count, n); this.geo.setDrawRange(0, this.active * 2); }
-  update(dt, cam) {
+  update(dt, cam, world) {
     this.t += dt;
     const n = this.active ?? this.count;
     const fall = 16, wind = 2.2;
@@ -179,6 +179,13 @@ export class Rain {
       let z = (this.seed[i * 3 + 2] - cam.position.z) % 40; if (z < 0) z += 40; z -= 20;
       const X = cam.position.x + x, Y = cam.position.y - 6 + y, Z = cam.position.z + z;
       const o = i * 6;
+      // 可进入的货栈内部不下雨（屋檐下直接藏到地坪以下）
+      if (world && world.isIndoors(X, Y, Z)) {
+        this.pos[o] = this.pos[o + 3] = X;
+        this.pos[o + 1] = this.pos[o + 4] = -40;
+        this.pos[o + 2] = this.pos[o + 5] = Z;
+        continue;
+      }
       this.pos[o] = X; this.pos[o + 1] = Y; this.pos[o + 2] = Z;
       this.pos[o + 3] = X - wind * 0.035; this.pos[o + 4] = Y + 0.55; this.pos[o + 5] = Z;
     }
