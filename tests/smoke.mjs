@@ -19,7 +19,9 @@ await page.waitForFunction(() => window.__rt && window.__rt.ready, null, { timeo
 await page.waitForTimeout(2500);
 const h1 = await page.locator('h1').first().textContent();
 ok(h1.includes('锈潮'), 'title visible: ' + h1);
+ok((await page.locator('.title-sub').first().textContent()).includes('午夜禁区'), 'subtitle 午夜禁区');
 ok((await page.content()).includes('作者：Jack'), 'credit 作者：Jack present');
+ok((await page.content()).includes('手电筒') || (await page.content()).includes('KeyF') || (await page.content()).includes('>F</'), 'help/keys mention flashlight');
 await shot('01-title');
 
 await page.click('#btnStart');
@@ -38,6 +40,19 @@ await page.keyboard.down('ShiftLeft'); await page.keyboard.down('KeyW'); await p
 await page.keyboard.down('KeyC'); await page.waitForTimeout(300); ok(await page.evaluate(() => window.__game.player.crouch), 'crouch with C'); await page.keyboard.up('KeyC');
 await page.waitForTimeout(2500);
 await shot('02-port');
+
+await page.keyboard.press('KeyF');
+await page.waitForFunction(() => window.__rt.state().flashlight === true, null, { timeout: 8000 }).catch(() => {});
+s = await st();
+ok(s.flashlight === true, 'F turns flashlight on');
+await page.waitForTimeout(400);
+s = await st();
+ok(s.flashlightInt > 2, 'flashlight cone intensity ' + (s.flashlightInt && s.flashlightInt.toFixed(2)));
+await page.keyboard.press('KeyF');
+await page.waitForFunction(() => window.__rt.state().flashlight === false, null, { timeout: 8000 }).catch(() => {});
+s = await st();
+ok(s.flashlight === false, 'F toggles flashlight off');
+ok(s.wavesEnabled === false, 'combat waves disabled in atmosphere build');
 
 await page.evaluate(() => { window.__game.enemies.clear(); });
 await page.evaluate(() => {
@@ -221,8 +236,8 @@ await page.keyboard.down('KeyE'); await page.waitForFunction(() => window.__game
 s = await st(); ok(s.cut === 1, 'releasing E early does not cut');
 await page.keyboard.down('KeyE'); await page.waitForFunction(() => window.__rt.state().cut === 2, null, { timeout: 30000 }).catch(() => {}); await page.keyboard.up('KeyE');
 s = await st(); ok(s.cut === 2, 'relay B cut');
-await page.waitForFunction(() => window.__rt.state().enemies >= 1, null, { timeout: 30000 }).catch(() => {});
-s = await st(); ok(s.enemies >= 1, 'reinforcements spawned after cut: ' + s.enemies);
+await page.waitForTimeout(800);
+s = await st(); ok(s.enemies === 0, 'no combat-wave reinforcements after cut (enemies=' + s.enemies + ')');
 await tp(-30, -47.8); await face(-30, -50);
 await page.keyboard.down('KeyE'); await page.waitForFunction(() => window.__rt.state().cut === 3, null, { timeout: 30000 }).catch(() => {}); await page.keyboard.up('KeyE');
 s = await st(); ok(s.cut === 3, 'relay C cut, objective -> boat');

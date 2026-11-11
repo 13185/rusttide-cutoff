@@ -1,0 +1,94 @@
+import { chromium } from 'playwright';
+const PORT = process.env.PORT || '4190';
+const b = await chromium.launch({ headless: true, executablePath: '/usr/bin/google-chrome', args: ['--use-gl=angle', '--use-angle=swiftshader-webgl', '--ignore-gpu-blocklist'] });
+const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
+p.setDefaultTimeout(240000);
+p.on('pageerror', (e) => console.log('pageerror', e.message));
+await p.goto(`http://127.0.0.1:${PORT}/?quality=high`);
+await p.waitForFunction(() => window.__rt && window.__rt.ready, null, { timeout: 120000 });
+await p.waitForTimeout(1200);
+await p.screenshot({ path: 'screenshots/step1-after-title.png' });
+console.log('shot step1-after-title');
+
+await p.evaluate(() => document.getElementById('btnStart').click());
+await p.waitForFunction(() => window.__rt.state().mode === 'play', null, { timeout: 30000 });
+await p.evaluate(() => {
+  const g = window.__game; g.player.godMode = true; g.enemies.clear(); g.spawnT = 9999; g._director = () => {};
+  g.flashOn = false; if (g.flashLight) g.flashLight.intensity = 0;
+});
+const shot = async (n) => { await p.waitForTimeout(1200); await p.screenshot({ path: `screenshots/${n}.png` }); console.log('shot', n); };
+
+const poseAlley = () => p.evaluate(() => {
+  const P = window.__game.player, w = window.__game.weapon;
+  w.ads = 0; w.cur = 0; w.switchT = 0; w._showGun();
+  document.getElementById('caption').classList.add('hidden');
+  P.position.set(-2, 0, 72); P.vel.set(0,0,0); P.yaw = 0; P.pitch = 0.04;
+});
+await poseAlley();
+await shot('step1-after-alley');
+await p.evaluate(() => { const g = window.__game; g.flashOn = true; g.flashLight.intensity = 24; });
+await shot('step1-after-alley-flash');
+await p.evaluate(() => { const g = window.__game; g.flashOn = false; g.flashLight.intensity = 0; });
+
+await p.evaluate(() => { const P = window.__game.player; P.position.set(-2, 0, 80); P.vel.set(0,0,0); P.yaw = 0; P.pitch = -0.03; });
+await shot('step1-after-hip');
+
+const box = await p.evaluate(() => {
+  const list = window.__game.world.cont.list;
+  let best = list[0], score = 1e9;
+  for (const it of list) {
+    const s = Math.abs(it.x) + Math.abs(it.z - 40) * 0.3 + (it.y > 3 ? 2 : 0);
+    if (s < score) { score = s; best = it; }
+  }
+  return { x: best.x, y: best.y, z: best.z, long: best.long };
+});
+console.log('box', box);
+
+await p.evaluate((b) => {
+  const P = window.__game.player, w = window.__game.weapon, g = window.__game;
+  w.ads = 0; w.cur = 0; w.switchT = 0; w._showGun();
+  document.getElementById('hud').classList.add('hidden');
+  g.flashOn = false; g.flashLight.intensity = 0;
+  P.position.set(Math.sign(b.x) * 2.2, 0, b.z);
+  P.yaw = Math.atan2(b.x - P.position.x, -(b.z - P.position.z));
+  P.pitch = 0.05;
+}, box);
+await shot('step1-after-side');
+await p.evaluate(() => { const g = window.__game; g.flashOn = true; g.flashLight.intensity = 24; });
+await shot('step1-after-side-flash');
+
+await p.evaluate((b) => {
+  const P = window.__game.player, g = window.__game;
+  g.flashOn = true; g.flashLight.intensity = 24;
+  const end = b.x + (b.long === 0 ? 6.4 : 3.2);
+  P.position.set(end, 0, b.z + 3.4);
+  P.yaw = Math.atan2(b.x - P.position.x, -(b.z - P.position.z));
+  P.pitch = 0.12;
+}, box);
+await shot('step1-after-end');
+
+// 华晨达门端，看海军箱 + 锁杆是否可识别
+await p.evaluate(() => {
+  const P = window.__game.player, g = window.__game;
+  g.flashOn = true; g.flashLight.intensity = 24;
+  P.position.set(49.6, 0, 11.5); P.vel.set(0,0,0);
+  P.yaw = Math.atan2(42.0 - 49.6, -(11.5 - 11.5)); P.pitch = 0.08;
+});
+await shot('step1-after-hcd-door');
+
+const lights = await p.evaluate(() => {
+  const g = window.__game;
+  let n = 0;
+  g.scene.traverse((o) => {
+    if (!o.isLight) return;
+    if (o === g.sun || o === g.hemi) return;
+    if (o === g.flashLight) return;
+    // weapon scene lights are not in world scene
+    const inten = o.intensity || 0;
+    if (inten > 0.01 && o.visible !== false) n++;
+  });
+  const street = (g.world.streetLamps || []).filter((s) => s.light && s.lit && s.on).length;
+  return { dynamicOn: n, street, relays: g.world.relays.filter((r) => r.light && r.light.visible && r.light.intensity > 0).length, door: g.world.doorSpot ? g.world.doorSpot.intensity : 0, flash: g.flashLight.intensity, fog: g.scene.fog.density, enemies: g.enemies.alive() };
+});
+console.log('lights', JSON.stringify(lights));
+await b.close();

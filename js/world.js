@@ -167,16 +167,19 @@ export class World {
 
   _yard() {
     const r = mulberry(404);
-    const palette = ['#9a4a2e', '#40647a', '#4d6e56', '#85847c', '#a8692f', '#74393a', '#bdb7a7', '#4f5b68', '#2f4f6e', '#8a2f2a'];
+    // ≥70% 饱和箱蓝/信号红/橙/绿/白，灰与脏棕 ≤20%
+    const palette = ['#1B5EAA', '#C62828', '#E65100', '#2E7D32', '#F3EEE4', '#1565C0', '#D32F2F', '#F9A825', '#6D6458', '#5A4332'];
     const cols = palette.map((c) => new THREE.Color(c));
-    // 近景：Blender 波纹钢箱（框架/锁杆/板面三种材质）；远景：低模盒体。按相机距离逐帧分配实例
-    const paint = pbr('corten', { wear: 0.85, wet: 1, env: 0.62 });
-    const frame = pbr('corten', { wear: 1.0, wet: 0.8, env: 0.55, color: 0xc8c2b8 });
-    const steel = pbr('steel', { color: 0x8a6a4a, wear: 0.6, wet: 0.5, env: 0.5 });
+    // 近景：干净工业漆（法线减弱）+ 边角磨损；锁杆用更亮的冷金属
+    const paint = pbr('contpaint', { wear: 0.38, wet: 0.55, env: 0.78, normal: 0.22 });
+    const frame = pbr('paint', { wear: 0.45, wet: 0.5, env: 0.7, normal: 0.3, color: 0xd4d0c8 });
+    const steel = pbr('steel', { color: 0xc5d0d8, wear: 0.22, wet: 0.35, env: 0.95, normal: 0.35 });
     const liner = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.95, metalness: 0, envMapIntensity: 0.12 });
     const markMat = new THREE.MeshStandardMaterial({
-      map: A.tex.mark, transparent: true, alphaTest: 0.22, depthWrite: false,
-      metalness: 0.08, roughness: 0.65, envMapIntensity: 0.3
+      map: A.tex.mark, transparent: true, alphaTest: 0.08, depthWrite: false,
+      metalness: 0.08, roughness: 0.5, envMapIntensity: 0.55,
+      emissive: new THREE.Color(0xffffff), emissiveMap: A.tex.mark, emissiveIntensity: 0.28,
+      polygonOffset: true, polygonOffsetFactor: -1
     });
     const matOf = { M_cont_paint: paint, M_cont_frame: frame, M_cont_steel: steel, M_cont_liner: liner };
     const mkLod = (node) => meshParts('containers', node).map((p) => {
@@ -205,7 +208,7 @@ export class World {
     // 代理：全部箱子的盒体。shadow = 只投影不着色（主通道零像素开销）；refl = 只在反射通道出现
     const proxy = (L, kind) => {
       const g = new THREE.BoxGeometry(L * 0.985, 2.55, 2.4); g.translate(0, 1.275, 0);
-      const mat = kind === 'shadow' ? new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }) : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0.22, map: (A.tex.corten && A.tex.corten.a) || A.tex.paint.a });
+      const mat = kind === 'shadow' ? new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }) : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.48, metalness: 0.18, map: (A.tex.contpaint && A.tex.contpaint.a) || A.tex.paint.a });
       const im = new THREE.InstancedMesh(g, mat, 900); im.count = 0; im.frustumCulled = false; im.castShadow = kind === 'shadow'; this.root.add(im);
       if (kind === 'refl') { im.visible = false; this.refl.only.push(im); } else this.refl.hidden.push(im);
       return im;
@@ -231,7 +234,7 @@ export class World {
       const yaw = r() < 0.5 ? 0 : Math.PI;
       for (let k = 0; k < levels; k++) {
         const ci = Math.floor(r() * cols.length);
-        const c = cols[ci].clone().multiplyScalar(0.82 + r() * 0.22);
+        const c = cols[ci].clone().multiplyScalar(0.94 + r() * 0.08);
         const m = new THREE.Matrix4();
         _q.setFromEuler(new THREE.Euler(0, yaw, 0));
         m.compose(_p.set(x, k * 2.591, z), _q, _s.set(1, 1, 1));
@@ -367,13 +370,16 @@ export class World {
       m.position.set(x, 0.03, z); m.userData.streak = true; m.userData.base = new THREE.Vector3(x, 0.03, z);
       this.root.add(m); this.refl.hidden.push(m);
       this.lamps.push(m);
+      s.userData.streakMesh = m;
     }
     return s;
   }
 
   _lamps() {
+    // 10 根灯杆都在，但真正的动态灯只给主通道 4 盏高压钠，总动态灯预算见 applyLightBudget
     const pts = [[-4.5, 66], [4.5, 30], [-4.5, -6], [4.5, -36], [-24, -30], [24, -28], [-48, 22], [48, 26], [-30, 64], [40, -10]];
     this.lights = [];
+    this.streetLamps = [];
     const parts = meshParts('props', 'lamppost');
     const ims = parts.map((p) => { const im = new THREE.InstancedMesh(p.geometry, this.matFor(p.mat) || this.mat.steel, pts.length); im.castShadow = true; im.receiveShadow = true; this.root.add(im); return im; });
     pts.forEach(([x, z], i) => {
@@ -381,13 +387,62 @@ export class World {
       _m.compose(_p.set(x, 0, z), _q.identity(), _s.set(1, 1, 1));
       ims.forEach((im) => im.setMatrixAt(i, _m));
       this.addBox(x - 0.3, x + 0.3, z - 0.3, z + 0.3, h);
-      this._lampGlow(x, h - 0.3, z, 0xffb366, 5.5);
-      if (i < 6) {
-        const L = new THREE.PointLight(0xffa860, 26, 26, 1.7);
+      const sodium = i < 4;
+      const glowCol = sodium ? 0xffb366 : 0xc5d4e2;
+      const glow = this._lampGlow(x, h - 0.3, z, glowCol, sodium ? 5.5 : 3.6, true, sodium ? 1 : 0.55);
+      let L = null;
+      if (i < 4) {
+        L = new THREE.PointLight(0xffa040, 20, 24, 1.6);
         L.position.set(x, h - 1, z); this.root.add(L); this.lights.push(L);
       }
+      this.streetLamps.push({ light: L, glow, x, z, h, baseIntensity: L ? 20 : 0, on: true, lit: !!L, flicker: i === 1 || i === 3, glowCol });
     });
     ims.forEach((im) => { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); });
+  }
+  extinguishLamp(i) {
+    const s = this.streetLamps && this.streetLamps[i];
+    if (!s || !s.on) return false;
+    s.on = false;
+    if (s.light) s.light.intensity = 0;
+    if (s.glow) { s.glow.material.opacity = 0.04; s.glow.material.color.set(0x1a140e); const st = s.glow.userData.streakMesh; if (st) st.visible = false; }
+    return true;
+  }
+  resetLamps() {
+    if (!this.streetLamps) return;
+    for (const s of this.streetLamps) {
+      s.on = true;
+      if (s.light) { s.light.intensity = s.lit ? s.baseIntensity : 0; }
+      if (s.glow) { s.glow.material.opacity = (s.glowCol === 0xc5d4e2 ? 0.55 : 0.9); s.glow.material.color.set(s.glowCol); const st = s.glow.userData.streakMesh; if (st) st.visible = true; }
+    }
+  }
+  applyLightBudget(q) {
+    // 场景有效动态灯 ≤ 8（另加手电 1）。低画质再收一档。
+    const nStreet = q === 'low' ? 2 : q === 'medium' ? 3 : 4;
+    if (this.streetLamps) {
+      this.streetLamps.forEach((s, i) => {
+        s.lit = i < nStreet;
+        if (s.light) s.light.intensity = (s.on && s.lit) ? s.baseIntensity : 0;
+      });
+    }
+    if (this.doorSpot) this.doorSpot.intensity = q === 'low' ? 18 : 28;
+    if (this.relays) for (const r of this.relays) {
+      if (!r.light) continue;
+      const on = q !== 'low';
+      r.light.visible = on;
+      if (!r.cut) r.light.intensity = on ? 11 : 0;
+    }
+  }
+  updateLamps(t) {
+    if (!this.streetLamps) return;
+    for (const s of this.streetLamps) {
+      if (!s.on || !s.light || !s.lit) continue;
+      let k = 1;
+      if (s.flicker) {
+        const dip = (Math.sin(t * 13.7 + s.x) > 0.93) ? 0.28 : 1;
+        k = (0.93 + 0.07 * Math.sin(t * 2.2 + s.z)) * dip;
+      }
+      s.light.intensity = s.baseIntensity * k;
+    }
   }
 
   _props() {
@@ -541,10 +596,10 @@ export class World {
     this._hangBanner(2, 58, -17.35, Math.PI, false);
 
     // —— 华晨达装卸角（仓库西门外北侧，不堵卷帘门）
-    const navy = pbr('paint', { wear: 0.55, wet: 0.85, env: 0.5, color: 0x1a3d5c });
-    const frameN = pbr('corten', { wear: 0.9, wet: 0.7, env: 0.5, color: 0xb8c4c8 });
+    const navy = pbr('contpaint', { wear: 0.32, wet: 0.55, env: 0.75, normal: 0.22, color: 0x1a3d5c });
+    const frameN = pbr('steel', { wear: 0.28, wet: 0.4, env: 0.85, normal: 0.35, color: 0xc5d0d8 });
     const liner = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.95, metalness: 0 });
-    const matC = { M_cont_paint: navy, M_cont_frame: frameN, M_cont_steel: this.mat.steel, M_cont_liner: liner };
+    const matC = { M_cont_paint: navy, M_cont_frame: frameN, M_cont_steel: pbr('steel', { color: 0xc5d0d8, wear: 0.22, wet: 0.35, env: 0.95, normal: 0.35 }), M_cont_liner: liner };
     const placeHcd = (x, z, yaw) => {
       const g = new THREE.Group();
       for (const p of meshParts('containers', 'cont40')) {
@@ -666,11 +721,12 @@ export class World {
     this.addBox(57.3, 59.7, 6.8, 10.6, 2.2);
 
     // 大门射灯：只留 Spotlight + 门口微光精灵，不再放几何锥体/硬边体积光网格
-    const spot = new THREE.SpotLight(0xffe0b0, 56, 30, 0.62, 0.82, 1.05);
+    const spot = new THREE.SpotLight(0xdde8f4, 28, 28, 0.55, 0.82, 1.15);
     spot.position.set(49.2, 7.4, 0); spot.target.position.set(63, 0.2, 0);
     this.root.add(spot); this.root.add(spot.target);
-    this._lampGlow(50.4, 6.8, 0, 0xffe2b8, 4.2, false, 0.7);
-    this._lampGlow(56, 2.4, 0, 0xe8d2a8, 6.5, true, 0.35);
+    this.doorSpot = spot; this.lights.push(spot);
+    this._lampGlow(50.4, 6.8, 0, 0xd8e4f0, 4.2, false, 0.55);
+    this._lampGlow(56, 2.4, 0, 0xc8d4e0, 6.5, true, 0.28);
   }
 
   _relays() {
@@ -688,9 +744,8 @@ export class World {
       const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), lightMat); beacon.position.set(0, 9.2, -1.3); g.add(beacon);
       const glow = this._lampGlow(def.x, 9.2, def.z - 1.3, 0xffb347, 3.5, false);
       const cable = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.05, 6, 20, Math.PI), this.mat.rubber); cable.position.set(1.0, 0, 0.6); cable.rotation.y = 1.2; g.add(cable);
-      const light = new THREE.PointLight(0xffa040, 16, 12, 1.8); light.position.set(0, 3.4, 0.9); g.add(light);
-      // 背侧冷色补光（模拟天光反弹），避免背光面死黑
-      const fill = new THREE.PointLight(0x9fb4cc, 5, 7, 1.6); fill.position.set(0.6, 2.6, -2.2); g.add(fill);
+      const light = new THREE.PointLight(0xffa040, 11, 11, 1.8); light.position.set(0, 3.4, 0.9); g.add(light);
+      this.lights.push(light);
       this.root.add(g);
       this.addBox(def.x - 0.85, def.x + 0.85, def.z - 0.55, def.z + 0.55, 2.55);
       this.addBox(def.x - 0.5, def.x + 0.5, def.z - 1.8, def.z - 0.8, 9);
@@ -708,7 +763,7 @@ export class World {
   }
   resetRelays() {
     for (const r of this.relays) {
-      r.cut = false; r.lightMat.color.set(0xffb347); r.glow.material.color.set(0xffb347); r.glow.material.opacity = 0.9; r.light.color.set(0xffa040); r.light.intensity = 18;
+      r.cut = false; r.lightMat.color.set(0xffb347); r.glow.material.color.set(0xffb347); r.glow.material.opacity = 0.9; r.light.color.set(0xffa040); r.light.intensity = r.light.visible ? 11 : 0;
     }
   }
 
@@ -747,6 +802,7 @@ export class World {
   update(dt, t, camera) {
     this.lodT -= dt;
     if (this.lodT <= 0) { this.lodT = 0.12; camera.getWorldDirection(this._fwd || (this._fwd = new THREE.Vector3())); this.updateLOD(camera.position, this._fwd); }
+    this.updateLamps(t);
     this.groundMat.userData.rippleTime.value = t;
     this.waterMat.userData.rippleTime.value = t;
     this.waterMat.normalMap.offset.set(t * 0.004, t * 0.01);

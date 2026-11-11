@@ -1,4 +1,4 @@
-// 黎明阴雨天空：自写着色器（渐变 + 低空太阳 + 程序化云层）
+// 破晓前冷青夜空：自写着色器（深青灰渐变 + 极弱月光 + 程序化云层）
 import * as THREE from '../vendor/three/three.module.js';
 
 const VS = `
@@ -28,7 +28,7 @@ void main(){
   float up = clamp(d.y, -0.2, 1.0);
   float sd = max(dot(d, normalize(sunDir)), 0.0);
   vec3 col = mix(horizon, zenith, pow(clamp(up,0.0,1.0), 0.45));
-  // 太阳附近暖色晕染
+  // 极弱冷月光晕（无日出暖边）
   col += sunCol * (pow(sd, 6.0) * 0.55 + pow(sd, 48.0) * 1.4) * smoothstep(-0.1, 0.25, 1.0 - up);
   // 云：投影到平面
   if (d.y > -0.05) {
@@ -52,13 +52,13 @@ export class Sky {
   constructor(sunDir) {
     this.uniforms = {
       sunDir: { value: sunDir.clone() },
-      zenith: { value: new THREE.Color('#4a5868') },
-      horizon: { value: new THREE.Color('#8c9096') },
-      sunCol: { value: new THREE.Color('#ffb46a') },
-      cloudDark: { value: new THREE.Color('#56606c') },
-      cloudLit: { value: new THREE.Color('#cdb9a2') },
+      zenith: { value: new THREE.Color('#141c24') },
+      horizon: { value: new THREE.Color('#2a3540') },
+      sunCol: { value: new THREE.Color('#7a8ea0') },
+      cloudDark: { value: new THREE.Color('#1a222c') },
+      cloudLit: { value: new THREE.Color('#3a4654') },
       time: { value: 0 },
-      cover: { value: 0.62 }
+      cover: { value: 0.78 }
     };
     const mat = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, uniforms: this.uniforms, side: THREE.BackSide, depthWrite: false, fog: false });
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), mat);

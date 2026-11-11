@@ -53,18 +53,24 @@ export class Audio {
   _beds() {
     const c = this.ctx;
     const loop = (buf, type, f, q, g, dest) => { const s = c.createBufferSource(); s.buffer = buf; s.loop = true; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const gn = c.createGain(); gn.gain.value = g; s.connect(fl); fl.connect(gn); gn.connect(dest); s.start(); return { s, fl, gn }; };
-    this.rainHi = loop(this.noise, 'highpass', 2500, 0.5, 0.05, this.amb);
-    this.rainMid = loop(this.noise, 'bandpass', 900, 0.6, 0.06, this.amb);
-    this.wind = loop(this.brown, 'lowpass', 380, 0.8, 0.22, this.amb);
+    this.rainHi = loop(this.noise, 'highpass', 2500, 0.5, 0.04, this.amb);
+    this.rainMid = loop(this.noise, 'bandpass', 900, 0.6, 0.05, this.amb);
+    this.wind = loop(this.brown, 'lowpass', 380, 0.8, 0.18, this.amb);
     this.sea = loop(this.brown, 'lowpass', 220, 0.5, 0.0, this.amb);
-    // 张力垫：低音持续 + 微失谐
+    // 不安层：极低频、几乎听不出的持续嗡声（走 music 总线，受静音/环境音量约束）
+    const drone = c.createOscillator(); drone.type = 'sine'; drone.frequency.value = 37;
+    const drone2 = c.createOscillator(); drone2.type = 'sine'; drone2.frequency.value = 41.2;
+    const dg = c.createGain(); dg.gain.value = 0.016;
+    drone.connect(dg); drone2.connect(dg); dg.connect(this.music);
+    drone.start(); drone2.start(); this.drone = { o: drone, o2: drone2, gn: dg };
     this.pad = [];
-    for (const [f, g] of [[55, 0.05], [55.6, 0.04], [82.4, 0.025], [110.3, 0.012], [164.8, 0.008]]) {
+    for (const [f, g] of [[55, 0.028], [55.6, 0.022], [82.4, 0.012], [110.3, 0.006], [164.8, 0.004]]) {
       const o = c.createOscillator(); o.type = f > 100 ? 'triangle' : 'sine'; o.frequency.value = f;
       const gn = c.createGain(); gn.gain.value = 0; o.connect(gn); gn.connect(this.music); o.start(); this.pad.push({ o, gn, g });
     }
     this.pulse = c.createGain(); this.pulse.gain.value = 0; this.pulse.connect(this.music);
-    this.nextDrop = 0; this.nextHorn = 8; this.nextPulse = 0; this.nextCreak = 5;
+    this.nextDrop = 0; this.nextHorn = 8; this.nextPulse = 0; this.nextCreak = 4;
+    this.nextFarFoot = 10; this.nextStatic = 14; this.nextClang = 7;
   }
 
   _env(node, t, a, peak, d) { node.gain.setValueAtTime(0.0001, t); node.gain.exponentialRampToValueAtTime(peak, t + a); node.gain.exponentialRampToValueAtTime(0.0001, t + a + d); }
@@ -200,6 +206,58 @@ export class Audio {
   ui() { if (!this.ok()) return; const t = this.ctx.currentTime; this._tone(this._out(0.4, 0), t, 'triangle', 900, 700, 0.05, 0.08); }
   win() { if (!this.ok()) return; const t = this.ctx.currentTime; [220, 277, 330, 440].forEach((f, i) => this._tone(this.music, t + i * 0.18, 'triangle', f, f, 1.6, 0.08, 0.05)); }
 
+  farFoot(p, gain = 0.7) {
+    if (!this.ok()) return;
+    const t = this.ctx.currentTime; const out = this._pos(p, gain, 0.75);
+    for (let i = 0; i < 3; i++) {
+      const tt = t + i * 0.64;
+      this._tone(out, tt, 'sine', 68, 32, 0.28, 0.55, 0.012);
+      this._noise(out, tt, 0.2, 'lowpass', 380, 0.8, 0.42, 0.01, this.brown);
+      this._noise(out, tt, 0.09, 'bandpass', 850, 2.2, 0.2);
+    }
+  }
+  nearFarFoot(cam) {
+    if (!this.ok() || !cam) return;
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 29 + Math.random() * 6;
+    const p = { x: cam.x + Math.cos(ang) * dist, y: 0.2, z: cam.z + Math.sin(ang) * dist };
+    const t = this.ctx.currentTime;
+    // 断电声之后约 0.9 秒，一次更近但仍远的脚步
+    const start = t + 0.9;
+    const out = this._pos(p, 1.05, 0.8);
+    for (let i = 0; i < 3; i++) {
+      const tt = start + i * 0.58;
+      this._tone(out, tt, 'sine', 62, 28, 0.32, 0.7, 0.012);
+      this._noise(out, tt, 0.22, 'lowpass', 360, 0.8, 0.55, 0.01, this.brown);
+      this._noise(out, tt, 0.1, 'bandpass', 800, 2, 0.28);
+    }
+  }
+  metalClang(p) {
+    if (!this.ok()) return;
+    const t = this.ctx.currentTime; const out = this._pos(p, 0.55, 0.7);
+    this._tone(out, t, 'triangle', 220 + Math.random() * 80, 70, 0.9, 0.12, 0.01);
+    this._noise(out, t, 0.35, 'bandpass', 700, 1.4, 0.22, 0.008, this.brown);
+    this._noise(out, t + 0.04, 0.08, 'highpass', 2400, 0.7, 0.1);
+  }
+  radioStatic() {
+    if (!this.ok()) return;
+    const t = this.ctx.currentTime; const out = this._out(0.4, 0);
+    this._noise(out, t, 0.28, 'bandpass', 1900, 1.2, 0.16);
+    this._tone(out, t + 0.04, 'sawtooth', 260, 180, 0.1, 0.03);
+    this._noise(out, t + 0.12, 0.18, 'bandpass', 1000, 2, 0.07, 0.04);
+  }
+  lampOut() {
+    if (!this.ok()) return;
+    const t = this.ctx.currentTime; const out = this._out(0.55, 0.2);
+    this._noise(out, t, 0.12, 'bandpass', 1800, 2, 0.22);
+    this._tone(out, t, 'sawtooth', 140, 40, 0.35, 0.12, 0.005);
+    this._tone(out, t + 0.08, 'sine', 55, 30, 0.4, 0.2);
+  }
+  // 第二、三步预留：追逐层、残缺录音、结局三下敲击
+  chaseLayer() {}
+  playTape() {}
+  endingKnocks() {}
+
   update(dt, s) {
     if (!this.ctx) return;
     const c = this.ctx; const t = c.currentTime;
@@ -209,25 +267,37 @@ export class Audio {
       L.forwardX.value = s.fwd.x; L.forwardY.value = s.fwd.y; L.forwardZ.value = s.fwd.z; L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
     }
     const play = s.mode === 'play';
-    const tension = play ? Math.min(1, s.enemies / 8 + s.phase * 0.18) : 0.25;
-    this.pad.forEach((p, i) => p.gn.gain.setTargetAtTime(p.g * (0.6 + tension * (i > 2 ? 2.4 : 1)), t, 0.8));
-    this.sea.gn.gain.setTargetAtTime(Math.max(0, 1 - (s.cam ? (s.cam.position.z + 62) / 60 : 1)) * 0.35 + 0.05, t, 0.5);
+    const tension = play ? Math.min(1, 0.22 + (s.phase || 0) * 0.12) : 0.16;
+    this.pad.forEach((p, i) => p.gn.gain.setTargetAtTime(p.g * (0.7 + tension * (i > 2 ? 1.6 : 1)), t, 0.8));
+    this.sea.gn.gain.setTargetAtTime(Math.max(0, 1 - (s.cam ? (s.cam.position.z + 62) / 60 : 1)) * 0.32 + 0.05, t, 0.5);
     this.wind.fl.frequency.setTargetAtTime(300 + Math.sin(t * 0.13) * 120 + Math.sin(t * 0.41) * 60, t, 0.5);
     this.sfxLP.frequency.setTargetAtTime(s.hp < 30 && play ? 1400 : 18000, t, 0.2);
-    // 心跳/战斗脉冲
     this.nextPulse -= dt;
     if (play && this.nextPulse <= 0) {
       const lowHp = s.hp < 30;
-      this.nextPulse = lowHp ? 0.75 : 1.4 - tension * 0.7;
-      if (lowHp || tension > 0.3) { this._tone(this.music, t, 'sine', 58, 36, 0.18, lowHp ? 0.5 : 0.18 * tension); this._tone(this.music, t + 0.22, 'sine', 50, 34, 0.16, lowHp ? 0.35 : 0.1 * tension); }
+      this.nextPulse = lowHp ? 0.75 : 2.2;
+      if (lowHp) { this._tone(this.music, t, 'sine', 58, 36, 0.18, 0.45); this._tone(this.music, t + 0.22, 'sine', 50, 34, 0.16, 0.3); }
     }
-    // 远处汽笛、金属吱嘎
     this.nextHorn -= dt;
-    if (this.nextHorn <= 0) { this.nextHorn = 25 + Math.random() * 30; this._tone(this.amb, t, 'sawtooth', 98, 97, 3.2, 0.03, 0.6); this._tone(this.amb, t, 'sawtooth', 146.5, 146, 3.2, 0.02, 0.6); }
+    if (this.nextHorn <= 0) { this.nextHorn = 28 + Math.random() * 36; this._tone(this.amb, t, 'sawtooth', 98, 97, 3.2, 0.025, 0.6); this._tone(this.amb, t, 'sawtooth', 146.5, 146, 3.2, 0.016, 0.6); }
     this.nextCreak -= dt;
-    if (this.nextCreak <= 0) { this.nextCreak = 6 + Math.random() * 10; this._tone(this.amb, t, 'sawtooth', 70 + Math.random() * 40, 50, 1.4, 0.015, 0.3); }
-    // 雨滴敲铁皮
+    if (this.nextCreak <= 0) {
+      this.nextCreak = 5 + Math.random() * 9;
+      if (play && s.cam) {
+        const ang = Math.random() * Math.PI * 2, dist = 18 + Math.random() * 28;
+        this.metalClang({ x: s.cam.position.x + Math.cos(ang) * dist, y: 1, z: s.cam.position.z + Math.sin(ang) * dist });
+      } else this._tone(this.amb, t, 'sawtooth', 70 + Math.random() * 40, 50, 1.4, 0.015, 0.3);
+    }
     this.nextDrop -= dt;
-    if (this.nextDrop <= 0) { this.nextDrop = 0.05 + Math.random() * 0.12; this._tone(this.amb, t, 'sine', 2000 + Math.random() * 3000, 1500, 0.03, 0.008 + Math.random() * 0.01); }
+    if (this.nextDrop <= 0) { this.nextDrop = 0.06 + Math.random() * 0.14; this._tone(this.amb, t, 'sine', 2000 + Math.random() * 3000, 1500, 0.03, 0.007 + Math.random() * 0.01); }
+    // 远处不对劲：立体声定位的金属脚步（最近 ≥ 28m，无实体）与偶发对讲杂音
+    this.nextFarFoot -= dt;
+    if (play && this.nextFarFoot <= 0 && s.cam) {
+      this.nextFarFoot = 16 + Math.random() * 22;
+      const ang = Math.random() * Math.PI * 2, dist = 32 + Math.random() * 36;
+      this.farFoot({ x: s.cam.position.x + Math.cos(ang) * dist, y: 0.2, z: s.cam.position.z + Math.sin(ang) * dist }, 0.65);
+    }
+    this.nextStatic -= dt;
+    if (play && this.nextStatic <= 0) { this.nextStatic = 18 + Math.random() * 26; this.radioStatic(); }
   }
 }

@@ -245,5 +245,34 @@ def container_marks(path, S=2048):
     im.save(path)
     print('baked container marks', path)
 
-if __name__ == '__main__' or True:
-    pass
+
+def contpaint(name, S, seed):
+    """集装箱工业漆：干净喷漆为主，法线很弱，不做假波纹。锈和污是稀疏流痕，边角锈交给运行时顶点磨损。"""
+    rng = np.random.default_rng(seed)
+    base = fbm(S, 4, 5, rng)
+    micro = fbm(S, 80, 3, rng)
+    chipN = fbm(S, 22, 4, rng)
+    chips = ss(0.84, 0.90, chipN * 0.85 + micro * 0.15) * 0.55
+    rustSrc = chips * ss(0.6, 0.8, fbm(S, 6, 3, rng)) * 0.45
+    streakN = fbm(S, 110, 3, rng, aniso=28)
+    dots = (rng.random((S, S)) > 0.99993).astype(float)
+    dots = np.maximum(dots, np.roll(dots, 1, 1))
+    rustStreak = np.clip(smear_down(np.maximum(rustSrc * 0.5, dots), 0.9968) * ss(0.35, 0.8, streakN) * 0.7, 0, 0.35)
+    rain = ss(0.55, 0.9, fbm(S, 140, 3, rng, aniso=36)) * 0.35
+    grime = ss(0.62, 0.88, fbm(S, 3, 4, rng)) * 0.22
+    paintC = col((0.86, 0.86, 0.84)) * (0.94 + base[..., None] * 0.10 + micro[..., None] * 0.03)
+    primer = col((0.28, 0.20, 0.14))
+    rustC = col((0.34, 0.14, 0.06)) * (0.75 + micro[..., None] * 0.4)
+    alb = paintC * (1 - rain[..., None] * 0.08) * (1 - grime[..., None] * 0.18)
+    alb = alb * (1 - rustStreak[..., None]) + rustC * rustStreak[..., None]
+    alb = alb * (1 - chips[..., None]) + (primer * (1 - rustSrc[..., None]) + rustC * rustSrc[..., None]) * chips[..., None]
+    h = base * 0.08 + micro * 0.12 - chips * 0.35 + rustStreak * 0.08
+    nrm = normal_from_height(h, 1.6 * S / 1024)
+    rough = 0.38 + base * 0.08 + micro * 0.04 + chips * 0.18 + rustStreak * 0.12 - rain * 0.12 + grime * 0.08
+    metal = 0.22 * (1 - chips) + chips * (0.7 * (1 - rustSrc))
+    wear = fbm(S, 24, 4, rng) * 0.7
+    orm = np.stack([wear, rough, metal], -1)
+    save(name, alb, nrm, orm)
+
+if __name__ == '__main__':
+    contpaint('contpaint', 1024, 71)

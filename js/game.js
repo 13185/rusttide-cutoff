@@ -28,14 +28,16 @@ const PHASES = [
   { max: 10, every: 3.2, mix: { hound: 0.45, gull: 0.3, warden: 0.25 }, wardens: 3 }
 ];
 const RADIO = {
-  start: ['潮汐七号，这里是潮汐台。乍浦港区自动化网络被入侵，所有巡检机械已转为攻击模式。', '三处上行中继分别在西堆场、东仓库和一号岸桥下。逐个切断，撤离艇在码头东侧待命。'],
-  cut1: ['第一处中继下线。网络正在重新路由——重型守卫单元被唤醒了，利用集装箱掩护。'],
-  cut2: ['第二处中继下线。它们放出了空中单元，注意头顶。'],
-  cut3: ['最后一处中继已断开！整个乍浦港区都在朝你压过来——立刻去码头东侧登艇！'],
-  lowhp: ['生命体征在下降，先找掩体，别硬拼。', '你在流血，七号，退到箱子后面！'],
-  boat: ['看到你了，跳上来，我们马上离岸！'],
-  ammo: ['弹药告急，击毁的机械身上有港务局的弹药箱。']
+  start: ['潮汐七号，这里是潮汐台。乍浦港区刚刚失去联系，现场人员失踪，监控出现无法解释的异常。', '你是最后一名调查人员。关闭西堆场、东仓库和一号岸桥下三座异常中继，查明情况。撤离艇仍在码头东侧。不要往后看。'],
+  cut1: ['第一座中继已关闭。区域电力在掉……东南方向，像是沉重的金属脚步。'],
+  cut2: ['第二座中继已关闭。信号里有一段残缺录音，内容不清。系统仍要求关闭最后一座才能启动撤离艇。'],
+  cut3: ['第三座中继已关闭。立刻前往码头东侧登艇。'],
+  lowhp: ['生命体征在下降，先找掩体。', '你在流血，七号，退到箱子后面。'],
+  boat: ['看到你了，跳上来，我们马上离岸。'],
+  ammo: ['弹药不多，省着点用。']
 };
+// 第一步氛围版：关闭常规波次。第二步把此开关打开并接入巡夜者。
+const WAVES_ENABLED = false;
 
 export class Game {
   constructor(canvas) {
@@ -51,8 +53,8 @@ export class Game {
     this.renderer.autoClear = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.fov, innerWidth / innerHeight, 0.05, 1200);
-    this.sunDir = new THREE.Vector3(0.13, 0.085, -1).normalize();
-    this.scene.fog = new THREE.FogExp2(0x6c7178, 0.0080);
+    this.sunDir = new THREE.Vector3(0.28, 0.55, -0.78).normalize();
+    this.scene.fog = new THREE.FogExp2(0x1c2832, 0.0145);
     this.input = new Input(canvas);
     this.audio = new Audio();
     this.stats = { shots: 0, hits: 0, weak: 0, kills: 0, time: 0 };
@@ -67,7 +69,7 @@ export class Game {
     this.sky = new Sky(this.sunDir);
     this.scene.add(this.sky.mesh);
     this.refl.hidden = []; this.refl.only = [];
-    await step('正在布置集装箱与锈迹', 0.3);
+    await step('正在布置集装箱与港区灯光', 0.3);
     this.world = new World(this.scene, this.refl, this.quality);
     this.nav = new NavGrid(this.world);
     await step('正在架设岸桥起重机', 0.5);
@@ -78,7 +80,7 @@ export class Game {
     this.fx.world = this.world;
     this.rain = new Rain(this.scene, 5000);
     this.refl.hidden.push(this.rain.mesh);
-    await step('正在唤醒机械单元', 0.8);
+    await step('正在校准午夜光照与手电', 0.8);
     this.enemies = new Enemies(this.scene, this.world, this.fx, this.audio);
     this.enemies.onKill = (e) => this._onKill(e);
     this.enemies.nav = this.nav;
@@ -92,7 +94,15 @@ export class Game {
     this.input.onLockChange = (l) => this._onLock(l);
     this.post = new PostFX(this.renderer, { quality: 'high' });
     this.post.uSSAO.cameraFar.value = 1200;
-    this.post.uComp.exposure.value = 1.42;
+    this.post.uComp.exposure.value = 1.34;
+    this.post.uComp.lift.value.set(0.004, 0.008, 0.020);
+    this.post.uComp.gain.value.set(0.92, 0.98, 1.08);
+    this.post.uComp.contrast.value = 1.12;
+    this.post.uComp.saturation.value = 0.86;
+    this.post.uComp.vignette.value = 0.28;
+    this.post.uComp.grain.value = 0.034;
+    this.post.uComp.sharpen.value = 0.36;
+    this.post.uComp.shafts.value = 0.22;
     this.pickups = [];
     await step('正在准备首帧画面', 0.95);
     this.applyQuality(this.quality);
@@ -108,25 +118,35 @@ export class Game {
   }
 
   _lights() {
-    const sun = new THREE.DirectionalLight(0xffb878, 2.6);
+    // 极弱冷月光只勾轮廓，场景主要靠稀疏工业灯和手电
+    const sun = new THREE.DirectionalLight(0xb8c8d8, 0.45);
     sun.position.copy(this.sunDir).multiplyScalar(120);
     sun.castShadow = true;
     const sc = sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 1; sc.far = 400;
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04; sun.shadow.radius = 3.5; sun.shadow.blurSamples = 12;
     this.scene.add(sun, sun.target);
     this.sun = sun;
-    this.hemi = new THREE.HemisphereLight(0xa9bad2, 0x5e5448, 2.0);
+    this.hemi = new THREE.HemisphereLight(0x7a8ca0, 0x1c1a18, 0.92);
     this.scene.add(this.hemi);
+    // 手电筒：绑相机，窄锥远衰减。不占用右键开镜 / Q 换枪
+    const fl = new THREE.SpotLight(0xeef4ff, 0, 28, 34 * Math.PI / 180, 0.5, 1.0);
+    fl.castShadow = false;
+    this.camera.add(fl);
+    this.camera.add(fl.target);
+    fl.position.set(0.16, -0.14, 0.08);
+    fl.target.position.set(0.05, -0.1, -8);
+    this.flashLight = fl;
+    this.flashOn = false;
+    if (!this.camera.parent) this.scene.add(this.camera);
   }
   _env() {
-    // 用天空本身生成环境光照（PMREM）
     const pm = new THREE.PMREMGenerator(this.renderer);
     const es = new THREE.Scene();
     const sky2 = new Sky(this.sunDir); sky2.mesh.material.uniforms = this.sky.uniforms; es.add(sky2.mesh);
-    const groundCol = new THREE.Mesh(new THREE.CircleGeometry(800, 16), new THREE.MeshBasicMaterial({ color: 0x4d4943 }));
+    const groundCol = new THREE.Mesh(new THREE.CircleGeometry(800, 16), new THREE.MeshBasicMaterial({ color: 0x16181a }));
     groundCol.rotation.x = -Math.PI / 2; groundCol.position.y = -5; es.add(groundCol);
     this.scene.environment = pm.fromScene(es, 0.02).texture;
-    this.scene.environmentIntensity = 1.6;
+    this.scene.environmentIntensity = 0.62;
     pm.dispose();
   }
 
@@ -143,6 +163,19 @@ export class Game {
     this.post.applyQuality(q === 'ultra' ? 'high' : q === 'medium' ? 'medium' : q);
     this.rain.setCount(c.rain);
     this.world.setLodDistance(c.lod); this.world.updateLOD(this.camera.position);
+    this.world.applyLightBudget(q);
+    // 夜间色调与锐度不随画质被洗回暖色柔焦
+    if (this.post && this.post.uComp) {
+      this.post.uComp.lift.value.set(0.004, 0.008, 0.020);
+      this.post.uComp.gain.value.set(0.92, 0.98, 1.08);
+      this.post.uComp.contrast.value = 1.12;
+      this.post.uComp.saturation.value = 0.86;
+      this.post.uComp.vignette.value = 0.28;
+      this.post.uComp.grain.value = q === 'low' ? 0.016 : 0.034;
+      this.post.uComp.sharpen.value = q === 'low' ? 0.22 : 0.36;
+      this.post.uComp.shafts.value = q === 'low' ? 0 : 0.22;
+      this.post.uComp.exposure.value = 1.34;
+    }
     this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; });
     this._resize();
     document.querySelectorAll('#qualSeg button').forEach((b) => b.classList.toggle('on', b.dataset.q === q));
@@ -205,6 +238,10 @@ export class Game {
     this.player.reset(); this.weapon.reset();
     this.world.resetRelays(); this.world.setBoatReady(false);
     this.cut = 0; this.phase = 0; this.holdT = 0; this.spawnT = 4; this.elapsed = 0;
+    this.wavesEnabled = WAVES_ENABLED;
+    this.flashOn = false; if (this.flashLight) this.flashLight.intensity = 0;
+    this.world.resetLamps(); this.world.applyLightBudget(this.quality);
+    this.lampOutDone = false; this.lampOutAt = 18 + Math.random() * 70;
     this.stats = { shots: 0, hits: 0, weak: 0, kills: 0, time: 0 };
     this.radioQ = []; this.radioT = 0; this.lowHpTold = 0; this.ammoTold = false; this.boatTold = false;
     this.coverT = 0; this.inCover = false;
@@ -217,8 +254,8 @@ export class Game {
     this.say(RADIO.start, 1.2);
     this.input.requestLock();
     this.input.clearPressed();
-    // 开局：远处三只猎犬
-    setTimeout(() => { if (this.mode === 'play') for (let i = 0; i < 2; i++) this.enemies.spawn('hound', this.player); }, 3500);
+    // 氛围版不开猎犬。第二步打开 wavesEnabled 后再刷巡夜者。
+    if (this.wavesEnabled) setTimeout(() => { if (this.mode === 'play') for (let i = 0; i < 2; i++) this.enemies.spawn('hound', this.player); }, 3500);
   }
   pause() { if (this.mode !== 'play') return; this.mode = 'pause'; this._show('pause'); this.input.exitLock(); this.audio.relayLoop(false); }
   resume() { if (this.mode !== 'pause') return; this.mode = 'play'; this._show(null); this.input.requestLock(); }
@@ -262,7 +299,7 @@ export class Game {
     if (this.radioT >= 0 && this.radioQ.length) { this.radioCur = { text: this.radioQ.shift(), t: 0 }; $('radio').classList.remove('hidden'); this.audio.radio(); }
   }
   _objective() {
-    $('objTitle').textContent = this.cut < 3 ? '切断三处上行中继' : '登上码头撤离艇';
+    $('objTitle').textContent = this.cut < 3 ? '关闭三座异常中继' : '登上码头撤离艇';
     $('relayCount').textContent = `${this.cut}/3`;
     document.querySelectorAll('#relayBoxes i').forEach((b, i) => b.classList.toggle('on', i < this.cut));
   }
@@ -452,6 +489,7 @@ export class Game {
   }
 
   _director(dt) {
+    if (!this.wavesEnabled) return;
     const P = PHASES[this.phase];
     this.spawnT -= dt;
     const alive = this.enemies.alive();
@@ -466,6 +504,7 @@ export class Game {
     }
   }
   _reinforce() {
+    if (!this.wavesEnabled) return;
     const sets = [null, ['hound', 'hound', 'warden'], ['gull', 'gull', 'hound', 'hound'], ['hound', 'hound', 'gull', 'gull', 'warden']];
     (sets[this.phase] || []).forEach((t, i) => setTimeout(() => { if (this.mode === 'play') this.enemies.spawn(t, this.player); }, 600 + i * 900));
   }
@@ -503,6 +542,7 @@ export class Game {
     this.cut++; this.phase = Math.min(3, this.cut);
     this.weapon.addReserveAll(60, 12);
     this.say(RADIO['cut' + this.cut]);
+    if (this.cut === 1) this.audio.nearFarFoot(this.camera.position);
     this._reinforce();
     this._objective();
     if (this.cut >= 3) { this.world.setBoatReady(true); $('compassMarks').querySelector('[data-id=boat]').classList.remove('hidden'); }
@@ -596,6 +636,7 @@ export class Game {
     const wheel = inp.takeWheel(); if (wheel) sw = (w.cur + (wheel > 0 ? 1 : -1) + GUNS.length) % GUNS.length;
     if (inp.take('KeyQ')) sw = (w.cur + 1) % GUNS.length;
     if (sw >= 0 && w.switchTo(sw)) this.audio.switchW();
+    if (inp.take('KeyF')) { this.flashOn = !this.flashOn; this.audio.ui(); }
     if (inp.take('KeyV')) this._melee();
     if (inp.take('KeyG')) this._throw();
     const mv = pl.update(dt, this.inCover, w.ads);
@@ -617,6 +658,11 @@ export class Game {
     if (this.shake > 0.001) { const k = this.shake * this.shake * 0.028, t = this.time * 47; this.camera.rotation.x += Math.sin(t) * k; this.camera.rotation.y += Math.sin(t * 1.37 + 1) * k; this.camera.rotation.z += Math.sin(t * 0.83 + 2) * k * 0.5; }
     this._nades(dt);
     w.update(dt, inp, { speed: pl.speed });
+    this._updateFlashlight(dt, pl);
+    if (!this.lampOutDone && this.elapsed >= this.lampOutAt) {
+      if (this.world.extinguishLamp(0)) this.audio.lampOut();
+      this.lampOutDone = true;
+    }
     this.enemies.update(dt, pl, this.time);
     this._director(dt);
     this._relays(dt);
@@ -647,10 +693,23 @@ export class Game {
     this._hud(dt);
   }
 
+  _updateFlashlight(dt, pl) {
+    if (!this.flashLight) return;
+    const on = !!this.flashOn;
+    const target = on ? 24 : 0;
+    this.flashLight.intensity = damp(this.flashLight.intensity, target, 10, dt);
+    const st = pl.stepT || 0, k = Math.min(1, (pl.speed || 0) / 5);
+    this.flashLight.position.set(
+      0.16 + Math.sin(st * Math.PI * 2) * 0.03 * k,
+      -0.14 + Math.abs(Math.cos(st * Math.PI * 2)) * 0.024 * k,
+      0.08
+    );
+  }
+
   // —— 测试接口 ——
   debugState() {
     const w = this.weapon;
     return { weapon: w.def.id, slots: w.slots.map((x) => ({ ...x })), grenades: w.grenades, switching: w.switchT > 0, nades: this.nades.length, perf: { ...this.perf, geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures }, nav: { ...this.enemies.navStats, lastMs: this.nav.lastMs }, shake: this.shake,
-      mode: this.mode, hp: this.player.hp, ammo: this.weapon.ammo, reserve: this.weapon.reserve, cut: this.cut, phase: this.phase, enemies: this.enemies.alive(), pos: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z }, locked: this.input.locked, lockCalls: this.input.lockCalls, stats: { ...this.stats }, result: this.lastResult || null, quality: this.quality };
+      mode: this.mode, hp: this.player.hp, ammo: this.weapon.ammo, reserve: this.weapon.reserve, cut: this.cut, phase: this.phase, enemies: this.enemies.alive(), pos: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z }, locked: this.input.locked, lockCalls: this.input.lockCalls, stats: { ...this.stats }, result: this.lastResult || null, quality: this.quality, flashlight: !!this.flashOn, flashlightInt: this.flashLight ? this.flashLight.intensity : 0, wavesEnabled: !!this.wavesEnabled, lampOut: !!this.lampOutDone };
   }
 }
