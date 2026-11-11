@@ -7,10 +7,11 @@
   Felix Rieseberg 的浏览器 FPS《Saltline》启发。
 - 本作所有源代码、着色器、程序化模型、canvas 贴图、Web Audio 合成音效、界面与文字均由作者独立编写，
   未复制《Saltline》或其任何改名/汉化副本的源码、着色器、内嵌资源、文案或标记。
+- 角色、武器与场景网格由作者用 Blender 脚本独立建模；PBR 贴图由作者脚本烘焙。
 - 游戏名称、角色代号（潮汐七号 / 潮汐台）、地名（锈潮港 · 七号泊位）、武器名（潮汐-7）均为原创。
 
 第三方组件
-- three.js r170 — MIT License — Copyright © 2010-2024 three.js authors（vendor/three/three.module.js）
+- three.js r170 — MIT License — Copyright © 2010-2024 three.js authors（vendor/three/three.module.js、GLTFLoader.js、BufferGeometryUtils.js）
 
 音效
 - 全部为浏览器内 Web Audio API 实时程序化合成，无任何录音采样或第三方音频素材。

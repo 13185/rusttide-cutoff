@@ -100,6 +100,21 @@ export class Audio {
     this._tone(out, t + 0.005, 'square', 2600 * j, 900, 0.03, 0.05);
     if (Math.random() < 0.6) { const tt = t + 0.35 + Math.random() * 0.2; this._tone(this._out(0.5, 0.1), tt, 'triangle', 3200 + Math.random() * 900, 2800, 0.05, 0.05); this._tone(this._out(0.5, 0.1), tt + 0.06, 'triangle', 3600, 3000, 0.04, 0.03); }
   }
+  // 霰弹枪：更重的低频 + 更长的爆燃尾
+  shotgun() {
+    if (!this.ok()) return; const t = this.ctx.currentTime; const j = 0.95 + Math.random() * 0.1; const out = this._out(1.0, 0.7);
+    this._noise(out, t, 0.03, 'highpass', 3000 * j, 0.7, 0.7, 0.001);
+    this._noise(out, t, 0.22, 'bandpass', 900 * j, 0.6, 1.0, 0.001);
+    this._noise(out, t, 0.6, 'lowpass', 420 * j, 0.6, 0.8, 0.002, this.brown);
+    this._tone(out, t, 'sine', 95 * j, 32, 0.28, 1.0, 0.002);
+  }
+  pump() { if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._out(0.7, 0.1); this._noise(out, t, 0.06, 'bandpass', 1500, 3, 0.45); this._tone(out, t, 'triangle', 700, 500, 0.04, 0.1); this._noise(out, t + 0.16, 0.05, 'bandpass', 2100, 4, 0.5); this._tone(out, t + 0.16, 'triangle', 1000, 800, 0.04, 0.1); }
+  shellIn() { if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._out(0.6, 0.05); this._noise(out, t, 0.04, 'bandpass', 2600, 4, 0.35); this._tone(out, t, 'triangle', 1400, 1100, 0.03, 0.08); }
+  swing() { if (!this.ok()) return; const t = this.ctx.currentTime; this._noise(this._out(0.6, 0.05), t, 0.18, 'bandpass', 900, 1.2, 0.35); }
+  bash() { if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._out(0.8, 0.1); this._noise(out, t, 0.08, 'bandpass', 1800, 2, 0.6); this._tone(out, t, 'square', 600, 200, 0.08, 0.2); this._tone(out, t, 'sine', 140, 60, 0.12, 0.5); }
+  throwG() { if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._out(0.6, 0.05); this._tone(out, t, 'triangle', 2600, 2400, 0.03, 0.08); this._noise(out, t + 0.25, 0.2, 'bandpass', 700, 1, 0.25); }
+  bounce(p) { if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._pos(p, 0.5, 0.1); this._tone(out, t, 'triangle', 1700 + Math.random() * 600, 1200, 0.06, 0.12); }
+  switchW() { if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._out(0.5, 0.05); this._noise(out, t, 0.05, 'bandpass', 1200, 3, 0.25); this._noise(out, t + 0.22, 0.04, 'bandpass', 2200, 4, 0.35); }
   dry() { if (!this.ok()) return; const t = this.ctx.currentTime; this._noise(this._out(0.7, 0.05), t, 0.03, 'bandpass', 2400, 3, 0.4); this._tone(this._out(0.5, 0), t, 'square', 900, 500, 0.02, 0.06); }
   reload(dur) {
     if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._out(0.8, 0.15);

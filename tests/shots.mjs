@@ -7,11 +7,13 @@ const b = await chromium.launch({ headless: true, executablePath: '/usr/bin/goog
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
 p.setDefaultTimeout(240000);
 p.on('pageerror', (e) => console.log('pageerror', e.message));
+p.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('console', m.type(), m.text().slice(0, 300)); });
 await p.goto(`http://127.0.0.1:${PORT}/?quality=${Q}`);
 await p.waitForFunction(() => window.__rt && window.__rt.ready, null, { timeout: 120000 });
 await p.waitForTimeout(2000);
 const want = (n) => !ONLY || ONLY.includes(n);
-const shot = async (n) => { await p.screenshot({ path: `screenshots/${n}.png` }); console.log('shot', n); };
+const PFX = process.env.PFX || '';
+const shot = async (n) => { await p.screenshot({ path: `screenshots/${PFX}${n}.png` }); console.log('shot', PFX + n); };
 const ev = (f, a) => p.evaluate(f, a);
 const settle = async (ms = 1500) => { await p.waitForTimeout(ms); };
 if (want('title')) await shot('title');
@@ -19,6 +21,7 @@ await ev(() => document.getElementById('btnStart').click());
 await ev(() => { const g = window.__game; g.player.godMode = true; g.enemies.clear(); g.spawnT = 9999; g._director = () => {}; });
 const place = (a) => ev(([x, z, tx, tz, pitch]) => { const g = window.__game; const P = g.player; P.position.set(x, 0, z); P.vel.set(0, 0, 0); P.yaw = Math.atan2(-(tx - x), -(tz - z)); P.pitch = pitch || 0; }, a);
 if (want('port')) { await place([-2, 76, -2, 0, 0.03]); await settle(2500); await shot('port'); }
+if (want('gun')) { await ev(() => document.getElementById('caption').classList.add('hidden')); await place([-2, 46, 30, 30, 0.02]); await settle(2000); await shot('gun'); }
 if (want('port2')) { await ev(() => document.getElementById('caption').classList.add('hidden')); await place([-20, -28, 20, -60, 0.08]); await settle(2000); await shot('port2'); }
 if (want('relay')) {
   await ev(() => document.getElementById('caption').classList.add('hidden'));

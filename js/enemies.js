@@ -1,6 +1,8 @@
 // 港区失控机械：机械猎犬 / 机械飞鸥 / 机械守卫（程序化建模，原创设计）
 import * as THREE from '../vendor/three/three.module.js';
 import { RELAYS, QUAY_Z } from './world.js';
+import { A, pbr, instance } from './assets.js';
+
 
 export const TYPES = {
   hound: { name: '机械猎犬', hp: 70, speed: 7.2, weakMul: 2.5, score: 100 },
@@ -8,107 +10,65 @@ export const TYPES = {
   warden: { name: '机械守卫', hp: 460, speed: 2.3, weakMul: 3, score: 400 }
 };
 
+
+let M = null;
 function mats() {
-  return {
-    hull: new THREE.MeshStandardMaterial({ color: 0x5f656b, roughness: 0.38, metalness: 0.55 }),
-    plate: new THREE.MeshStandardMaterial({ color: 0x9a958a, roughness: 0.45, metalness: 0.45 }),
-    hazard: new THREE.MeshStandardMaterial({ color: 0xc8922e, roughness: 0.55, metalness: 0.4 }),
-    joint: new THREE.MeshStandardMaterial({ color: 0x26282a, roughness: 0.5, metalness: 0.6 }),
+  if (M) return M;
+  M = {
+    hull: pbr('enemy', { color: 0x8a9096, wearColor: 0xb5b7b8, env: 1.5 }),
+    plate: pbr('enemy', { color: 0xc2bdb2, wearColor: 0xa9aaab, env: 1.5 }),
+    hazard: pbr('enemy', { color: 0xe0a83e, wearColor: 0x9d9e9f, env: 1.4 }),
+    joint: pbr('steel', { color: 0x666666 }),
+    piston: new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.18, metalness: 1 }),
+    cable: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.2 }),
     eye: new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xff5a28, emissiveIntensity: 6, roughness: 0.3 }),
     core: new THREE.MeshStandardMaterial({ color: 0x221000, emissive: 0xffb347, emissiveIntensity: 5, roughness: 0.3 })
   };
+  M.byName = { M_en_hull: M.hull, M_en_plate: M.plate, M_en_hazard: M.hazard, M_en_joint: M.joint, M_en_piston: M.piston, M_en_cable: M.cable, M_weak_red: M.eye, M_weak_amber: M.core };
+  return M;
 }
-const M = mats();
 const flashMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.5 });
 
-function part(geo, mat, x, y, z, parent) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; }
+// Blender 模型（正面朝 +Z），外面包一层旋转 π 的节点使其朝 -Z，与游戏坐标一致
+function model(name) {
+  const m = mats();
+  const inner = instance('enemies', name, (n) => m.byName[n]);
+  inner.rotation.y = Math.PI;
+  const g = new THREE.Group(); g.add(inner);
+  const by = (n) => inner.getObjectByName(n);
+  return { g, inner, by };
+}
 
 function buildHound() {
-  const g = new THREE.Group();
-  const body = new THREE.Group(); body.position.y = 0.78; g.add(body);
-  part(new THREE.BoxGeometry(0.62, 0.42, 1.25), M.hull, 0, 0, 0, body);
-  part(new THREE.BoxGeometry(0.66, 0.08, 1.0), M.hazard, 0, 0.24, -0.05, body);
-  part(new THREE.CylinderGeometry(0.12, 0.12, 0.7, 8), M.joint, 0, -0.05, 0.2, body).rotation.x = Math.PI / 2;
-  for (let i = 0; i < 4; i++) part(new THREE.BoxGeometry(0.7, 0.04, 0.08), M.plate, 0, 0.12 - i * 0.07, 0.62, body);
-  const head = new THREE.Group(); head.position.set(0, 0.12, -0.72); body.add(head);
-  part(new THREE.BoxGeometry(0.42, 0.3, 0.5), M.plate, 0, 0, -0.1, head);
-  part(new THREE.BoxGeometry(0.34, 0.1, 0.42), M.joint, 0, -0.2, -0.16, head); // 下颚
-  const eye = part(new THREE.SphereGeometry(0.1, 12, 8), M.eye, 0, 0.04, -0.36, head);
-  part(new THREE.BoxGeometry(0.05, 0.25, 0.05), M.joint, 0.14, 0.25, 0.05, head).rotation.z = -0.3;
-  part(new THREE.BoxGeometry(0.05, 0.25, 0.05), M.joint, -0.14, 0.25, 0.05, head).rotation.z = 0.3;
+  const { g, by } = model('hound');
+  const body = by('hound_body'), head = by('hound_head'), eye = by('weak_eye');
   const legs = [];
-  for (const [x, z] of [[-0.3, -0.45], [0.3, -0.45], [-0.3, 0.45], [0.3, 0.45]]) {
-    const hip = new THREE.Group(); hip.position.set(x, -0.1, z); body.add(hip);
-    part(new THREE.BoxGeometry(0.1, 0.45, 0.14), M.hull, 0, -0.2, 0, hip);
-    const knee = new THREE.Group(); knee.position.set(0, -0.42, 0); hip.add(knee);
-    part(new THREE.BoxGeometry(0.08, 0.42, 0.1), M.joint, 0, -0.2, 0, knee);
-    part(new THREE.BoxGeometry(0.14, 0.05, 0.2), M.hull, 0, -0.42, -0.04, knee);
-    legs.push({ hip, knee, ph: (x > 0 ? 0 : Math.PI) + (z > 0 ? Math.PI : 0) });
+  for (const n of ['FL', 'FR', 'BL', 'BR']) {
+    const hip = by(`hleg${n}_hip`), knee = by(`hleg${n}_knee`);
+    legs.push({ hip, knee, ph: (n[1] === 'L' ? 0 : Math.PI) + (n[0] === 'B' ? Math.PI : 0) });
   }
-  const tail = part(new THREE.CylinderGeometry(0.02, 0.02, 0.8), M.joint, 0, 0.35, 0.8, body); tail.rotation.x = 0.7;
   return { g, body, head, legs, eye, hit: [
-    { obj: eye, r: 0.2, weak: true }, { obj: body, r: 0.5, weak: false, off: new THREE.Vector3(0, 0, -0.2) }, { obj: body, r: 0.45, weak: false, off: new THREE.Vector3(0, 0, 0.45) }
+    { obj: eye, r: 0.2, weak: true }, { obj: body, r: 0.5, weak: false, off: new THREE.Vector3(0, 0, 0.2) }, { obj: body, r: 0.45, weak: false, off: new THREE.Vector3(0, 0, -0.45) }
   ] };
 }
 
 function buildGull() {
-  const g = new THREE.Group();
-  const body = new THREE.Group(); g.add(body);
-  part(new THREE.CapsuleGeometry(0.22, 0.7, 4, 10), M.hull, 0, 0, 0, body).rotation.x = Math.PI / 2;
-  part(new THREE.ConeGeometry(0.2, 0.4, 10), M.plate, 0, 0, -0.6, body).rotation.x = -Math.PI / 2;
-  const eye = part(new THREE.SphereGeometry(0.13, 12, 8), M.core, 0, -0.08, -0.38, body);
-  part(new THREE.BoxGeometry(0.05, 0.3, 0.45), M.joint, 0, 0.12, 0.5, body);
+  const { g, by } = model('gull');
+  const body = by('gull_body'), eye = by('weak_core');
   const wings = [];
-  for (const s of [-1, 1]) {
-    const piv = new THREE.Group(); piv.position.set(0.18 * s, 0.05, 0); body.add(piv);
-    const w1 = part(new THREE.BoxGeometry(1.0, 0.04, 0.5), M.plate, 0.5 * s, 0, 0, piv);
-    const tip = new THREE.Group(); tip.position.set(1.0 * s, 0, 0); piv.add(tip);
-    part(new THREE.BoxGeometry(0.9, 0.03, 0.34), M.hull, 0.45 * s, 0, 0.06, tip);
-    part(new THREE.BoxGeometry(0.2, 0.05, 0.36), M.hazard, 0.85 * s, 0, 0.06, tip);
-    part(new THREE.CylinderGeometry(0.09, 0.09, 0.05, 12), M.joint, 0.45 * s, 0.05, 0, piv);
-    wings.push({ piv, tip, s });
-  }
+  for (const n of ['L', 'R']) { const piv = by('gull_wing' + n); wings.push({ piv, tip: by('gull_tip' + n), s: piv.position.x > 0 ? 1 : -1 }); }
   return { g, body, wings, eye, hit: [{ obj: eye, r: 0.2, weak: true }, { obj: body, r: 0.42, weak: false }, { obj: body, r: 0.5, weak: false, off: new THREE.Vector3(0.9, 0, 0) }, { obj: body, r: 0.5, weak: false, off: new THREE.Vector3(-0.9, 0, 0) }] };
 }
 
 function buildWarden() {
-  const g = new THREE.Group();
-  const pelvis = new THREE.Group(); pelvis.position.y = 1.55; g.add(pelvis);
-  part(new THREE.BoxGeometry(0.9, 0.4, 0.7), M.joint, 0, 0, 0, pelvis);
-  const torso = new THREE.Group(); torso.position.y = 0.75; pelvis.add(torso);
-  part(new THREE.BoxGeometry(1.5, 1.1, 1.0), M.hull, 0, 0, 0, torso);
-  part(new THREE.BoxGeometry(1.56, 0.22, 1.06), M.hazard, 0, -0.32, 0, torso);
-  part(new THREE.BoxGeometry(1.1, 0.7, 0.2), M.plate, 0, 0.1, -0.56, torso);
-  const back = part(new THREE.CylinderGeometry(0.28, 0.28, 0.6, 14), M.core, 0, 0.1, 0.62, torso); back.rotation.x = Math.PI / 2; // 背部散热核心（弱点）
-  part(new THREE.BoxGeometry(0.8, 0.9, 0.16), M.joint, 0, 0.12, 0.98, torso);
-  const head = new THREE.Group(); head.position.set(0, 0.72, -0.15); torso.add(head);
-  part(new THREE.BoxGeometry(0.55, 0.36, 0.5), M.plate, 0, 0, 0, head);
-  const visor = part(new THREE.BoxGeometry(0.46, 0.09, 0.05), M.eye, 0, 0.02, -0.27, head);
+  const { g, by } = model('warden');
+  const pelvis = by('warden_pelvis'), torso = by('warden_torso'), head = by('warden_head');
+  const visor = by('weak_visor'), back = by('weak_back');
   const arms = [];
-  for (const s of [-1, 1]) {
-    const sh = new THREE.Group(); sh.position.set(0.95 * s, 0.25, 0); torso.add(sh);
-    part(new THREE.BoxGeometry(0.6, 0.5, 0.8), M.plate, 0.08 * s, 0.1, 0, sh);
-    part(new THREE.BoxGeometry(0.26, 0.85, 0.3), M.hull, 0, -0.5, 0, sh);
-    const fore = new THREE.Group(); fore.position.set(0, -0.9, 0); sh.add(fore);
-    if (s > 0) {
-      part(new THREE.BoxGeometry(0.36, 0.36, 1.1), M.joint, 0, 0, -0.35, fore);
-      for (const dx of [-0.08, 0.08]) part(new THREE.CylinderGeometry(0.06, 0.06, 0.6, 8), M.hull, dx, 0.05, -1.1, fore).rotation.x = Math.PI / 2;
-    } else {
-      part(new THREE.BoxGeometry(0.3, 0.7, 0.3), M.hull, 0, -0.3, 0, fore);
-      part(new THREE.BoxGeometry(0.1, 1.1, 0.9), M.hazard, -0.18, -0.3, 0, fore); // 盾板
-    }
-    arms.push({ sh, fore, s });
-  }
+  for (const n of ['R', 'L']) arms.push({ sh: by('warden_sh' + n), fore: by('warden_fore' + n), s: n === 'R' ? 1 : -1 });
   const legs = [];
-  for (const s of [-1, 1]) {
-    const hip = new THREE.Group(); hip.position.set(0.38 * s, -0.15, 0); pelvis.add(hip);
-    part(new THREE.BoxGeometry(0.34, 0.75, 0.42), M.hull, 0, -0.35, 0, hip);
-    const knee = new THREE.Group(); knee.position.set(0, -0.72, 0); hip.add(knee);
-    part(new THREE.BoxGeometry(0.28, 0.7, 0.34), M.joint, 0, -0.32, 0.05, knee);
-    part(new THREE.BoxGeometry(0.44, 0.14, 0.7), M.plate, 0, -0.7, -0.08, knee);
-    legs.push({ hip, knee, s });
-  }
-  return { g, pelvis, torso, head, arms, legs, eye: visor, back, hit: [
+  for (const n of ['R', 'L']) legs.push({ hip: by(`wleg${n}_hip`), knee: by(`wleg${n}_knee`), s: n === 'R' ? 1 : -1 });
+  return { g, pelvis, torso, head, arms, legs, eye: visor, back, muzzle: by('warden_muzzle'), hit: [
     { obj: back, r: 0.42, weak: true }, { obj: visor, r: 0.28, weak: true }, { obj: torso, r: 0.85, weak: false }, { obj: pelvis, r: 0.6, weak: false, off: new THREE.Vector3(0, -0.6, 0) }, { obj: pelvis, r: 0.5, weak: false, off: new THREE.Vector3(0, -1.2, 0) }
   ] };
 }
@@ -128,6 +88,8 @@ export class Enemies {
     this.boltGeo = new THREE.SphereGeometry(0.09, 8, 6);
     this.boltMat = new THREE.MeshBasicMaterial({ color: 0xff7a3a });
     this.onKill = null;
+    this.nav = null; this.pathBudget = 0; this.navStats = { paths: 0, stuck: 0, unstuck: 0 };
+    this.flankSide = 1;
     this._v = new THREE.Vector3(); this._w = new THREE.Vector3();
   }
   clear() {
@@ -152,7 +114,10 @@ export class Enemies {
     const p = at || this.pickSpawn(player, type === 'gull' ? 26 : 30);
     const b = BUILD[type]();
     const e = { type, def, ...b, hp: def.hp, maxHp: def.hp, alive: true, t: Math.random() * 10, cool: 1.5 + Math.random() * 2, state: 'hunt', dash: 0, flash: 0, burst: 0, burstT: 0, orbit: Math.random() * 6.28, dying: 0 };
-    e.pos = new THREE.Vector3(p.x, type === 'gull' ? 12 + Math.random() * 5 : 0, p.z);
+    let sx = p.x, sz = p.z;
+    if (this.nav && type !== 'gull') { const k = this.nav.nearest(sx, sz, 2, 16); if (k >= 0) { const c = this.nav.center(k); sx = c.x; sz = c.z; } }
+    e.pos = new THREE.Vector3(sx, type === 'gull' ? 12 + Math.random() * 5 : 0, sz);
+    e.flank = (this.flankSide = -this.flankSide); e.path = null; e.repath = 0; e.prog = { x: sx, z: sz, t: 0 }; e.stuck = 0; e.mode = 'orbit';
     e.yaw = 0;
     e.g.position.copy(e.pos);
     e.g.traverse((o) => { if (o.isMesh) o.userData.baseMat = o.material; });
@@ -186,11 +151,11 @@ export class Enemies {
     return best;
   }
 
-  damage(e, amount, weak, point) {
+  damage(e, amount, weak, point, preMul = false) {
     if (!e.alive) return false;
-    const dmg = amount * (weak ? e.def.weakMul : 1);
+    const dmg = preMul ? amount : amount * (weak ? e.def.weakMul : 1);
     e.hp -= dmg; e.flash = 0.08;
-    this.fx.spark(point, weak ? 14 : 6, weak ? [1, 0.55, 0.2] : [1, 0.85, 0.6], weak ? 7 : 5, 0.35, 0.07);
+    if (!preMul) this.fx.spark(point, weak ? 14 : 6, weak ? [1, 0.55, 0.2] : [1, 0.85, 0.6], weak ? 7 : 5, 0.35, 0.07);
     if (e.state === 'idle') e.state = 'hunt';
     if (e.hp <= 0) { this.kill(e); return true; }
     return false;
@@ -199,6 +164,7 @@ export class Enemies {
     e.alive = false; e.dying = 1.2;
     const c = e.g.position.clone(); c.y += e.type === 'warden' ? 2 : e.type === 'gull' ? 0 : 0.8;
     this.fx.burst(c, [1, 0.6, 0.25], e.type === 'warden' ? 1.6 : 0.8);
+    const m = mats(); this.fx.debrisBurst(c, [m.hull, m.plate, m.joint, m.hazard], e.type === 'warden' ? 16 : 9, e.type === 'warden' ? 9 : 7);
     this.audio && this.audio.explode(c, e.type === 'warden' ? 1.4 : 0.7);
     this.audio && this.audio.enemyVoice(e.type, 'death', c);
     if (this.onKill) this.onKill(e);
@@ -206,6 +172,7 @@ export class Enemies {
 
   update(dt, player, t) {
     const pp = player.position;
+    this.pathBudget = 4;
     const eyeP = this._w.set(pp.x, pp.y + 1.5, pp.z);
     for (const e of this.list) {
       e.t += dt;
@@ -270,67 +237,159 @@ export class Enemies {
     const nx = e.pos.x + vx * dt, nz = e.pos.z + vz * dt;
     const r = e.type === 'warden' ? 0.9 : 0.55;
     const c = this.world.collide(nx, nz, 0, r, 2);
-    // 被卡住时绕行
-    if (Math.hypot(c.x - nx, c.z - nz) > 0.01) { e.stuck = (e.stuck || 0) + dt; } else e.stuck = Math.max(0, (e.stuck || 0) - dt);
     e.pos.x = c.x; e.pos.z = Math.max(QUAY_Z + 1, c.z);
-    // 敌人之间简单分离
+    // 敌人之间分离
     for (const o of this.list) {
       if (o === e || !o.alive || o.type === 'gull') continue;
       const ddx = e.pos.x - o.pos.x, ddz = e.pos.z - o.pos.z; const d = Math.hypot(ddx, ddz);
-      if (d > 0.01 && d < 1.4) { e.pos.x += ddx / d * (1.4 - d) * 0.5; e.pos.z += ddz / d * (1.4 - d) * 0.5; }
+      const md = (e.type === 'warden' || o.type === 'warden') ? 2.0 : 1.4;
+      if (d > 0.01 && d < md) { e.pos.x += ddx / d * (md - d) * 0.5; e.pos.z += ddz / d * (md - d) * 0.5; }
     }
   }
-  _steer(e, dx, dz, dist) {
-    // 被墙挡住时沿切线偏移
-    let ax = dx / dist, az = dz / dist;
-    if (e.stuck > 0.25) { const s = (Math.floor(e.t / 2) % 2) ? 1 : -1; const tx = -az * s, tz = ax * s; ax = ax * 0.25 + tx; az = az * 0.25 + tz; const n = Math.hypot(ax, az); ax /= n; az /= n; }
+
+  // 沿 A* 路径前进到 (tx,tz)。返回实际移动方向（用于朝向与步态）
+  _nav(e, dt, tx, tz, speed, stopAt = 0.8) {
+    const need = 2;
+    const tgtMoved = !e.pathTarget || Math.hypot(e.pathTarget.x - tx, e.pathTarget.z - tz) > 2.5;
+    e.repath -= dt;
+    if (this.nav && (!e.path || e.repath <= 0 || tgtMoved) && this.pathBudget > 0) {
+      this.pathBudget--;
+      const r = this.nav.find(e.pos.x, e.pos.z, tx, tz, need);
+      this.navStats.paths++;
+      e.path = r ? r.pts : null; e.pi = 1; e.repath = 0.8 + Math.random() * 0.6; e.pathTarget = { x: tx, z: tz };
+    }
+    let wx = tx, wz = tz;
+    if (e.path) {
+      while (e.pi < e.path.length - 1 && Math.hypot(e.path[e.pi].x - e.pos.x, e.path[e.pi].z - e.pos.z) < 1.0) e.pi++;
+      const last = e.pi >= e.path.length - 1;
+      const wp = e.path[Math.min(e.pi, e.path.length - 1)];
+      // 最后一段若直线可达，直接冲向目标
+      if (last && this.nav.clearLine(e.pos.x, e.pos.z, tx, tz, 1)) { wx = tx; wz = tz; } else { wx = wp.x; wz = wp.z; }
+    }
+    const dx = wx - e.pos.x, dz = wz - e.pos.z; const d = Math.hypot(dx, dz);
+    const full = Math.hypot(tx - e.pos.x, tz - e.pos.z);
+    if (full < stopAt || d < 0.05) { e.moving = 0; return null; }
+    const ax = dx / d, az = dz / d;
+    this._move(e, dt, ax * speed, az * speed);
+    e.moving = 1;
+    // 卡住检测：1.2 秒内几乎没前进 → 强制重算路径并挪到最近的开阔格
+    e.prog.t += dt;
+    if (e.prog.t > 1.2) {
+      const moved = Math.hypot(e.pos.x - e.prog.x, e.pos.z - e.prog.z);
+      if (moved < 0.35 * speed * 0.3) {
+        e.stuck++; this.navStats.stuck++; e.path = null; e.repath = 0;
+        if (this.nav && e.stuck >= 2) {
+          const k = this.nav.nearest(e.pos.x, e.pos.z, 3, 6);
+          if (k >= 0) { const c = this.nav.center(k); e.pos.x += (c.x - e.pos.x) * 0.5; e.pos.z += (c.z - e.pos.z) * 0.5; this.navStats.unstuck++; }
+        }
+      } else e.stuck = 0;
+      e.prog.x = e.pos.x; e.prog.z = e.pos.z; e.prog.t = 0;
+    }
     return [ax, az];
+  }
+  _face(e, ax, az, rate, dt) {
+    const want = Math.atan2(-ax, -az);
+    let dy = want - e.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+    e.yaw += Math.sign(dy) * Math.min(Math.abs(dy), dt * rate);
+    return dy;
   }
 
   _hound(e, dt, player, dist, dx, dz, dyaw) {
-    e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * 7);
+    const pp = player.position;
     let sp = e.def.speed;
     if (e.dash > 0) { e.dash -= dt; sp = 15; }
-    else if (dist < 9 && e.cool <= 0) { e.dash = 0.45; e.cool = 2.2; this.audio && this.audio.enemyVoice('hound', 'attack', e.pos); }
-    if (dist > 1.3) { const [ax, az] = this._steer(e, dx, dz, dist); this._move(e, dt, ax * sp, az * sp); }
+    // 包抄：远处时朝玩家侧翼的点跑（左右交替），近了再正面扑咬
+    let tx = pp.x, tz = pp.z;
+    if (dist > 11 && !(e.dash > 0)) {
+      const px = -dz / dist, pz = dx / dist; const off = Math.min(8, dist * 0.45) * e.flank;
+      tx = pp.x + px * off - dx / dist * 3; tz = pp.z + pz * off - dz / dist * 3;
+    }
+    const eye = this._v.set(e.pos.x, 0.9, e.pos.z);
+    const see = dist < 14 && this.world.los(eye, this._w);
+    if (!(e.dash > 0) && dist < 9 && e.cool <= 0 && see) { e.dash = 0.45; e.cool = 2.2; this.audio && this.audio.enemyVoice('hound', 'attack', e.pos); }
+    const dir = dist > 1.3 ? this._nav(e, dt, tx, tz, sp, 1.0) : null;
+    if (dir && dist > 4) this._face(e, dir[0], dir[1], 8, dt); else e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * 8);
     if (dist < 1.6 && (e.bite || 0) <= 0) { player.hurt(e.dash > 0 ? 16 : 10, e.pos); e.bite = 0.9; }
     e.bite = (e.bite || 0) - dt;
-    const gait = e.t * (e.dash > 0 ? 22 : 14);
-    for (const L of e.legs) { L.hip.rotation.x = Math.sin(gait + L.ph) * 0.7; L.knee.rotation.x = Math.max(0, Math.sin(gait + L.ph + 1.2)) * 0.9; }
-    e.body.position.y = 0.78 + Math.abs(Math.sin(gait)) * 0.06; e.body.rotation.x = e.dash > 0 ? 0.12 : 0.04;
+    const mv = dir ? 1 : 0.15;
+    e.gait = (e.gait || 0) + dt * (e.dash > 0 ? 22 : 14) * mv;
+    const gait = e.gait;
+    for (const L of e.legs) { L.hip.rotation.x = Math.sin(gait + L.ph) * 0.7 * mv; L.knee.rotation.x = -Math.max(0, Math.sin(gait + L.ph + 1.2)) * 0.9 * mv; }
+    e.body.position.y = 0.78 + Math.abs(Math.sin(gait)) * 0.06 * mv; e.body.rotation.x = e.dash > 0 ? -0.12 : -0.04;
     e.head.rotation.x = Math.sin(e.t * 3) * 0.1;
   }
 
   _gull(e, dt, player, dist, dx, dz, dyaw, eyeP) {
-    e.orbit += dt * 0.55;
-    const r = 15 + Math.sin(e.t * 0.3) * 4;
-    const tx = player.position.x + Math.cos(e.orbit) * r, tz = player.position.z + Math.sin(e.orbit) * r;
-    const ty = 9 + Math.sin(e.t * 0.8) * 2.5 + (e.dive > 0 ? -6 : 0);
-    const vx = tx - e.pos.x, vz = tz - e.pos.z, vy = ty - e.pos.y; const L = Math.hypot(vx, vz) || 1;
-    const sp = Math.min(e.def.speed, L * 1.5);
-    e.pos.x += vx / L * sp * dt; e.pos.z += vz / L * sp * dt; e.pos.y += vy * dt * 1.2;
-    e.pos.x = Math.max(-74, Math.min(74, e.pos.x)); e.pos.z = Math.max(QUAY_Z - 20, Math.min(104, e.pos.z));
-    e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * 4);
-    e.body.rotation.z = Math.sin(e.t * 1.3) * 0.25;
-    const flap = Math.sin(e.t * 9);
-    for (const w of e.wings) { w.piv.rotation.z = w.s * flap * 0.35; w.tip.rotation.z = w.s * flap * 0.3; }
-    if (e.cool <= 0) {
-      const from = e.pos.clone(); from.y -= 0.1;
-      if (this.world.los(from, eyeP)) {
-        this.shoot(from, eyeP, 30, 7, 0.06, 0xffb347);
-        this.audio && this.audio.enemyShot('gull', e.pos);
-        e.cool = 1.6 + Math.random() * 1.6;
-      } else e.cool = 0.5;
+    const pp = player.position;
+    const floor = (x, z) => this.world.groundHeight(x, z, 200, 0.6);
+    if (e.mode === 'dive') {
+      // 二次贝塞尔俯冲：起点 → 玩家上方低空控制点 → 远端拉起
+      e.dt2 += dt / e.dur;
+      const t = Math.min(1, e.dt2), u = 1 - t;
+      const P0 = e.bz[0], P1 = e.bz[1], P2 = e.bz[2];
+      const nx = u * u * P0.x + 2 * u * t * P1.x + t * t * P2.x;
+      const ny = u * u * P0.y + 2 * u * t * P1.y + t * t * P2.y;
+      const nz = u * u * P0.z + 2 * u * t * P1.z + t * t * P2.z;
+      const tx = nx - e.pos.x, tz = nz - e.pos.z;
+      e.pos.set(nx, Math.max(ny, floor(nx, nz) + 1.6), nz);
+      if (Math.hypot(tx, tz) > 1e-4) this._face(e, tx, tz, 10, dt);
+      e.body.rotation.x = (u - 0.5) * 0.9; e.body.rotation.z = 0;
+      if (!e.fired && t > 0.3) {
+        const from = e.pos.clone(); from.y -= 0.2;
+        if (this.world.los(from, eyeP)) { this.shoot(from, eyeP, 34, 7, 0.05, 0xffb347); this.audio && this.audio.enemyShot('gull', e.pos); }
+        e.fired = true;
+      }
+      if (t >= 1) { e.mode = 'orbit'; e.cool = 2.4 + Math.random() * 2; e.orbit = Math.atan2(e.pos.z - pp.z, e.pos.x - pp.x); }
+    } else {
+      e.orbit += dt * 0.55;
+      const r = 15 + Math.sin(e.t * 0.3) * 4;
+      const tx = pp.x + Math.cos(e.orbit) * r, tz = pp.z + Math.sin(e.orbit) * r;
+      const ty = Math.max(9 + Math.sin(e.t * 0.8) * 2.5, floor(tx, tz) + 4);
+      const vx = tx - e.pos.x, vz = tz - e.pos.z, vy = ty - e.pos.y; const L = Math.hypot(vx, vz) || 1;
+      const sp = Math.min(e.def.speed, L * 1.5);
+      e.pos.x += vx / L * sp * dt; e.pos.z += vz / L * sp * dt; e.pos.y += vy * dt * 1.2;
+      e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * 4);
+      e.body.rotation.z = Math.sin(e.t * 1.3) * 0.25; e.body.rotation.x = 0;
+      if (e.cool <= 0 && dist < 38) {
+        const away = new THREE.Vector3(pp.x - e.pos.x, 0, pp.z - e.pos.z).normalize();
+        const lowY = Math.max(3.2, floor(pp.x, pp.z) + 3);
+        e.bz = [e.pos.clone(), new THREE.Vector3(pp.x - away.x * 3, lowY - 2.5, pp.z - away.z * 3), new THREE.Vector3(pp.x + away.x * 14, 10, pp.z + away.z * 14)];
+        e.dur = Math.max(1.4, e.pos.distanceTo(e.bz[2]) / 16); e.dt2 = 0; e.mode = 'dive'; e.fired = false;
+        this.audio && this.audio.enemyVoice('gull', 'attack', e.pos);
+      }
     }
+    e.pos.x = Math.max(-74, Math.min(74, e.pos.x)); e.pos.z = Math.max(QUAY_Z - 20, Math.min(104, e.pos.z));
+    const flap = Math.sin(e.t * (e.mode === 'dive' ? 4 : 9));
+    const amp = e.mode === 'dive' ? 0.12 : 0.35;
+    for (const w of e.wings) { w.piv.rotation.z = w.s * flap * amp; w.tip.rotation.z = w.s * flap * amp * 0.85; }
   }
 
+  // 守卫：挑选靠近障碍物、又能探身射击的掩体点；到位后点射，打完换位
+  _pickCover(e, pp) {
+    if (!this.nav) return null;
+    let best = null, bs = -1e9;
+    const eye = new THREE.Vector3(pp.x, pp.y + 1.5, pp.z), p = new THREE.Vector3();
+    for (let i = 0; i < 36; i++) {
+      const a = Math.random() * Math.PI * 2, r = 12 + Math.random() * 14;
+      const k = this.nav.nearest(pp.x + Math.cos(a) * r, pp.z + Math.sin(a) * r, 2, 3); if (k < 0) continue;
+      const c = this.nav.center(k); const cl = this.nav.clear[k];
+      let sc = (cl <= 3 ? 3 : 0) - Math.hypot(c.x - e.pos.x, c.z - e.pos.z) * 0.12;
+      p.set(c.x, 2.3, c.z); if (this.world.los(p, eye)) sc += 4; else continue;
+      p.set(c.x, 1.0, c.z); if (!this.world.los(p, eye)) sc += 2; // 下半身有遮挡
+      if (sc > bs) { bs = sc; best = c; }
+    }
+    return best;
+  }
   _warden(e, dt, player, dist, dx, dz, dyaw, eyeP) {
-    e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * 1.6);
-    const muzzle = new THREE.Vector3(0.95, 1.55 + 0.75 + 0.25 - 0.9, -1.4).applyAxisAngle(new THREE.Vector3(0, 1, 0), e.yaw).add(e.pos);
+    const pp = player.position;
+    e.muzzle.getWorldPosition(this._v); const muzzle = this._v.clone();
     const see = dist < 55 && this.world.los(muzzle, eyeP);
+    e.coverT = (e.coverT || 0) - dt;
+    if (!e.cover || e.coverT <= 0 || Math.hypot(e.cover.x - pp.x, e.cover.z - pp.z) < 8) { e.cover = this._pickCover(e, pp) || { x: pp.x, z: pp.z }; e.coverT = 6 + Math.random() * 4; }
     let moving = 0;
-    if (!see || dist > 22) { const [ax, az] = this._steer(e, dx, dz, dist); this._move(e, dt, ax * e.def.speed, az * e.def.speed); moving = 1; }
-    else if (dist < 9) { this._move(e, dt, -dx / dist * 1.4, -dz / dist * 1.4); moving = 0.6; }
+    if (dist < 8) { this._move(e, dt, -dx / dist * 1.6, -dz / dist * 1.6); moving = 0.6; }
+    else if (e.burst <= 0) { const dir = this._nav(e, dt, e.cover.x, e.cover.z, e.def.speed, 1.2); if (dir) moving = 1; }
+    e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * 1.6);
     if (see && e.cool <= 0 && Math.abs(dyaw) < 0.5) { e.burst = 4; e.burstT = 0; e.cool = 3.2 + Math.random() * 1.5; this.audio && this.audio.enemyVoice('warden', 'attack', e.pos); }
     if (e.burst > 0) {
       e.burstT -= dt;
@@ -339,12 +398,14 @@ export class Enemies {
         this.shoot(muzzle, eyeP, 46, 8, 0.045, 0xff5a40);
         this.fx.light(muzzle, 0xff6a3a, 25, 0.06, 8);
         this.audio && this.audio.enemyShot('warden', e.pos);
+        if (e.burst === 0) e.coverT = Math.min(e.coverT, 1.5 + Math.random()); // 打完一轮就换位
       }
     }
-    const gait = e.t * 4.5 * moving;
-    for (const L of e.legs) { L.hip.rotation.x = Math.sin(gait + (L.s > 0 ? 0 : Math.PI)) * 0.45 * moving; L.knee.rotation.x = Math.max(0, Math.sin(gait + (L.s > 0 ? 0 : Math.PI) + 1.3)) * 0.6 * moving; }
+    e.gait = (e.gait || 0) + dt * 4.5 * moving;
+    const gait = e.gait;
+    for (const L of e.legs) { L.hip.rotation.x = Math.sin(gait + (L.s > 0 ? 0 : Math.PI)) * 0.45 * moving; L.knee.rotation.x = -Math.max(0, Math.sin(gait + (L.s > 0 ? 0 : Math.PI) + 1.3)) * 0.6 * moving; }
     e.pelvis.position.y = 1.55 + Math.abs(Math.cos(gait)) * 0.05 * moving;
     e.torso.rotation.y = Math.sin(e.t * 0.7) * 0.1;
-    for (const a of e.arms) if (a.s > 0) a.sh.rotation.x = e.burst > 0 ? -0.12 + Math.random() * 0.05 : -0.05;
+    for (const a of e.arms) if (a.s > 0) a.sh.rotation.x = e.burst > 0 ? 0.12 - Math.random() * 0.05 : 0.05;
   }
 }

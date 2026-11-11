@@ -5,7 +5,7 @@ export class Input {
     this.keys = {};
     this.pressed = {};
     this.look = { x: 0, y: 0 };
-    this.fireHeld = false; this.adsHeld = false;
+    this.fireHeld = false; this.adsHeld = false; this.firePressed = false; this.wheel = 0;
     this.locked = false; this.lockCalls = 0;
     this.sensitivity = 0.0021;
     this.onLockChange = null; this.onLook = null;
@@ -17,10 +17,11 @@ export class Input {
     addEventListener('keyup', (e) => { this.keys[e.code] = false; });
     canvas.addEventListener('mousedown', (e) => {
       if (!this.locked) { this.requestLock(); return; }
-      if (e.button === 0) this.fireHeld = true;
+      if (e.button === 0) { this.fireHeld = true; this.firePressed = true; }
       if (e.button === 2) this.adsHeld = true;
     });
-    addEventListener('mousedown', (e) => { if (this.locked && e.target !== canvas) { if (e.button === 0) this.fireHeld = true; if (e.button === 2) this.adsHeld = true; } });
+    addEventListener('wheel', (e) => { if (this.locked) this.wheel += Math.sign(e.deltaY); }, { passive: true });
+    addEventListener('mousedown', (e) => { if (this.locked && e.target !== canvas) { if (e.button === 0) { this.fireHeld = true; this.firePressed = true; } if (e.button === 2) this.adsHeld = true; } });
     addEventListener('mouseup', (e) => { if (e.button === 0) this.fireHeld = false; if (e.button === 2) this.adsHeld = false; });
     addEventListener('blur', () => { this.fireHeld = false; this.adsHeld = false; this.keys = {}; });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -42,7 +43,9 @@ export class Input {
   exitLock() { if (document.pointerLockElement) document.exitPointerLock(); }
   consumeLook() { const l = { ...this.look }; this.look.x = 0; this.look.y = 0; return l; }
   take(code) { const v = !!this.pressed[code]; this.pressed[code] = false; return v; }
-  clearPressed() { this.pressed = {}; }
+  clearPressed() { this.pressed = {}; this.firePressed = false; this.wheel = 0; }
+  takeFire() { const v = this.firePressed; this.firePressed = false; return v; }
+  takeWheel() { const v = this.wheel; this.wheel = 0; return v; }
   axis() {
     let x = 0, z = 0;
     if (this.keys.KeyA) x -= 1; if (this.keys.KeyD) x += 1;

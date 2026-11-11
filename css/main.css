@@ -70,6 +70,8 @@ h2 { font-size:34px; margin:8px 0 6px; } h3 { margin:0 0 14px; font-size:20px; c
 #ammoNum.low { color:var(--alarm); }
 .mag-ticks { display:flex; gap:2px; justify-content:flex-end; margin:6px 0 4px; } .mag-ticks i { width:4px; height:9px; background:var(--bone); opacity:.85; } .mag-ticks i.off { opacity:.15; }
 #weapName { font-size:12px; color:var(--dim); letter-spacing:.08em; }
+#gren { font-size:12px; color:var(--amber); letter-spacing:.12em; margin-top:3px; }
+.mag-ticks.big i { width:9px; height:12px; }
 #reloadTip, #lowTip { font-size:12px; color:var(--amber); margin-top:4px; letter-spacing:.2em; }
 #cross { position:absolute; left:50%; top:50%; width:0; height:0; transition:opacity .1s; }
 #cross i { position:absolute; background:rgba(232,228,218,.9); box-shadow:0 0 2px #000; } #cross .t,#cross .b { width:2px; height:8px; left:-1px; } #cross .l,#cross .r { height:2px; width:8px; top:-1px; }
@@ -82,6 +84,6 @@ h2 { font-size:34px; margin:8px 0 6px; } h3 { margin:0 0 14px; font-size:20px; c
 #radio { position:absolute; left:50%; bottom:15vh; transform:translateX(-50%); width:min(640px,80vw); text-align:center; }
 .radio-who { font-size:11px; color:var(--amber); letter-spacing:.2em; margin-bottom:4px; } #radioText { font-size:16px; line-height:1.5; background:rgba(8,9,11,.45); padding:4px 10px; display:inline-block; }
 #hurtVig { position:absolute; inset:0; opacity:0; background:radial-gradient(ellipse at center, transparent 45%, rgba(140,20,10,.55) 100%); transition:opacity .2s; }
-#hurtDir { position:absolute; left:50%; top:50%; width:220px; height:220px; margin:-110px; border-radius:50%; border-top:4px solid rgba(255,90,64,.8); opacity:0; }
+#hurtDir { position:absolute; left:50%; top:50%; width:240px; height:240px; margin:-120px; border-radius:50%; border-top:6px solid rgba(255,80,56,.9); opacity:0; filter:drop-shadow(0 0 6px rgba(255,60,40,.8)); -webkit-mask:conic-gradient(from -35deg, #000 0 70deg, transparent 70deg); mask:conic-gradient(from -35deg, #000 0 70deg, transparent 70deg); }
 #lockTip { position:absolute; left:50%; top:42%; transform:translateX(-50%); background:var(--plate); padding:8px 16px; font-size:14px; border:1px solid var(--faint); }
 #stats { position:absolute; right:12px; top:10px; font-size:10px; color:var(--faint); }

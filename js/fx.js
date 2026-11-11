@@ -32,6 +32,36 @@ export class FX {
     // 烟（普通混合）
     this.smoke = [];
     this.smokeMat = new THREE.SpriteMaterial({ map: glowTex, color: 0x2a2a2a, transparent: true, depthWrite: false, opacity: 0.5 });
+    // 机械残骸碎片（几种不规则块，共享几何）
+    this.debrisGeo = [new THREE.BoxGeometry(0.22, 0.05, 0.16), new THREE.BoxGeometry(0.1, 0.1, 0.3), new THREE.CylinderGeometry(0.05, 0.05, 0.28, 6), new THREE.TetrahedronGeometry(0.14)];
+    this.debris = [];
+    this.world = null;
+  }
+  debrisBurst(p, mats, n = 10, speed = 7) {
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(this.debrisGeo[i % this.debrisGeo.length], mats[i % mats.length]);
+      m.position.copy(p).add(new THREE.Vector3((Math.random() - 0.5) * 0.6, Math.random() * 0.4, (Math.random() - 0.5) * 0.6));
+      m.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      const s = 0.6 + Math.random() * 1.0; m.scale.setScalar(s);
+      m.castShadow = true;
+      this.scene.add(m);
+      const v = new THREE.Vector3(Math.random() - 0.5, 0.6 + Math.random() * 0.8, Math.random() - 0.5).normalize().multiplyScalar(speed * (0.4 + Math.random() * 0.8));
+      this.debris.push({ m, v, w: new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16), t: 0, life: 5 + Math.random() * 2, smoke: Math.random() < 0.4 });
+      if (this.debris.length > 90) { const d = this.debris.shift(); this.scene.remove(d.m); }
+    }
+  }
+  explosion(p, scale = 1) {
+    this.spark(p, 70 * scale, [1, 0.62, 0.25], 14 * scale, 1.0, 0.18, 7);
+    this.spark(p, 24, [1, 0.92, 0.75], 4, 0.3, 1.6 * scale, 0);
+    this.light(p, 0xff9a40, 160 * scale, 0.35, 26);
+    for (let i = 0; i < 10 * scale; i++) this.puff(p.clone().add(new THREE.Vector3((Math.random() - 0.5) * 3, Math.random() * 1.5, (Math.random() - 0.5) * 3)), 3 + Math.random() * 3, 3.2);
+    this.ring(p, 7 * scale);
+  }
+  // 地面冲击波环
+  ring(p, r) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.6, 1, 40), new THREE.MeshBasicMaterial({ color: 0xffc080, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.position.set(p.x, 0.08, p.z); this.scene.add(m);
+    this.rings = this.rings || []; this.rings.push({ m, r, t: 0 });
   }
   spark(p, n = 10, color = [1, 0.7, 0.35], speed = 6, life = 0.45, size = 0.08, grav = 9) {
     for (let i = 0; i < n; i++) {
@@ -89,6 +119,21 @@ export class FX {
       f.l.intensity = f.i0 * Math.max(0, 1 - f.t / f.life);
       if (f.t > f.life) { this.scene.remove(f.l); f.l.dispose(); this.flashes.splice(i, 1); }
     }
+    for (let i = this.debris.length - 1; i >= 0; i--) {
+      const d = this.debris[i]; d.t += dt;
+      if (d.t > d.life) { this.scene.remove(d.m); this.debris.splice(i, 1); continue; }
+      const floor = this.world ? this.world.groundHeight(d.m.position.x, d.m.position.z, d.m.position.y, 0.05) : 0;
+      d.v.y -= 14 * dt; d.m.position.addScaledVector(d.v, dt);
+      if (d.m.position.y < floor + 0.04) { d.m.position.y = floor + 0.04; d.v.y *= -0.32; d.v.x *= 0.55; d.v.z *= 0.55; d.w.multiplyScalar(0.5); }
+      d.m.rotation.x += d.w.x * dt; d.m.rotation.y += d.w.y * dt; d.m.rotation.z += d.w.z * dt;
+      if (d.smoke && d.t < 2.5 && Math.random() < dt * 6) this.puff(d.m.position.clone(), 0.5, 1.2);
+      if (d.t > d.life - 1) d.m.scale.multiplyScalar(1 - dt * 2);
+    }
+    if (this.rings) for (let i = this.rings.length - 1; i >= 0; i--) {
+      const r = this.rings[i]; r.t += dt; const k = r.t / 0.45;
+      r.m.scale.setScalar(0.5 + k * r.r); r.m.material.opacity = 0.6 * (1 - k);
+      if (k >= 1) { this.scene.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose(); this.rings.splice(i, 1); }
+    }
     for (let i = this.smoke.length - 1; i >= 0; i--) {
       const s = this.smoke[i]; s.t += dt;
       const k = s.t / s.life;
@@ -102,6 +147,8 @@ export class FX {
     for (const t of this.tracers) this.scene.remove(t.m);
     for (const f of this.flashes) this.scene.remove(f.l);
     for (const s of this.smoke) this.scene.remove(s.s);
+    for (const d of this.debris) this.scene.remove(d.m); this.debris.length = 0;
+    if (this.rings) { for (const r of this.rings) this.scene.remove(r.m); this.rings.length = 0; }
     this.tracers.length = 0; this.flashes.length = 0; this.smoke.length = 0;
   }
 }

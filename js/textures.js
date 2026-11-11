@@ -239,3 +239,19 @@ export function streakTexture() {
   g.putImageData(img, 0, 0);
   return tex(c, true, false);
 }
+
+// 标线磨损遮罩：噪声挖洞 + 横向刷痕
+export function wornMask(seed) {
+  const r = mulberry(seed);
+  const S = 256;
+  const [c, g] = canvas(S, S);
+  g.fillStyle = '#fff'; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 260; i++) {
+    const x = r() * S, y = r() * S, s = 2 + r() * 14;
+    g.fillStyle = `rgba(0,0,0,${0.3 + r() * 0.6})`;
+    g.beginPath(); g.ellipse(x, y, s, s * (0.3 + r() * 0.7), r() * 3, 0, 7); g.fill();
+  }
+  for (let i = 0; i < 2600; i++) { g.fillStyle = `rgba(0,0,0,${r() * 0.5})`; g.fillRect(r() * S, r() * S, 1 + r() * 3, 1); }
+  for (let i = 0; i < 30; i++) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, r() * S, S, 1 + r() * 4); }
+  return tex(c, false);
+}

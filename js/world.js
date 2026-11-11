@@ -2,6 +2,7 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { mulberry } from './util.js';
 import * as TX from './textures.js';
+import { A, pbr, instance, meshParts } from './assets.js';
 
 export const QUAY_Z = -62;
 export const RELAYS = [
@@ -59,35 +60,48 @@ export class World {
     this._relays();
     this._boat();
     this._distant();
+    this.lodT = 0;
   }
 
   _mats() {
-    const r = this.rng;
     this.mat = {
-      steel: new THREE.MeshStandardMaterial({ color: 0x3b3d3f, roughness: 0.55, metalness: 0.7, map: TX.noiseTexture('#5a5550', 11) }),
-      craneRed: new THREE.MeshStandardMaterial({ color: 0xb4aca0, roughness: 0.55, metalness: 0.3, map: TX.noiseTexture('#a9a196', 12) }),
-      concrete: new THREE.MeshStandardMaterial({ color: 0x8a8580, roughness: 0.9, map: TX.noiseTexture('#77736c', 13, false) }),
-      dark: new THREE.MeshStandardMaterial({ color: 0x1a1b1d, roughness: 0.6, metalness: 0.5 }),
-      yellow: new THREE.MeshStandardMaterial({ color: 0xc89a2e, roughness: 0.55, metalness: 0.3, map: TX.noiseTexture('#c89a2e', 14) }),
-      wall: new THREE.MeshStandardMaterial({ color: 0x8c8e8c, roughness: 0.6, metalness: 0.2, map: TX.corrugatedTexture('#6f7675', 15) }),
+      steel: pbr('steel', { repeat: 1 }),
+      craneRed: pbr('paint', { color: 0xb4aca0 }),
+      concrete: pbr('concrete', { metal: 0, normal: 0.8, wet: 0.6, wear: 0 }),
+      dark: pbr('steel', { color: 0x555555 }),
+      yellow: pbr('paint', { color: 0xd0a030 }),
+      wall: new THREE.MeshStandardMaterial({ color: 0x8c8e8c, roughness: 0.6, metalness: 0.2, map: TX.corrugatedTexture('#6f7675', 15), normalMap: A.tex.paint.n }),
       roof: new THREE.MeshStandardMaterial({ color: 0x4a4a48, roughness: 0.5, metalness: 0.6, map: TX.corrugatedTexture('#4c4a46', 16) }),
       rubber: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.85 }),
-      white: new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.4 }),
+      white: pbr('paint', { color: 0xd8d4c8 }),
       amberLamp: new THREE.MeshBasicMaterial({ color: 0xffc27a }),
-      orange: new THREE.MeshStandardMaterial({ color: 0xd2622a, roughness: 0.6 })
+      orange: pbr('paint', { color: 0xd2622a, wear: 0.5 }),
+      glass: new THREE.MeshStandardMaterial({ color: 0x0b1014, roughness: 0.05, metalness: 0.9 }),
+      cable: new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.4, metalness: 0.8 })
     };
     this.mat.wall.map.repeat.set(6, 1);
     this.mat.roof.map.repeat.set(8, 4);
+    // Blender 材质名 → 运行时 PBR 材质
+    const M = this.mat;
+    const map = {
+      M_crane_paint: M.craneRed, M_crane_red: pbr('paint', { color: 0x8c3a26 }), M_crane_steel: M.steel, M_cable: M.cable, M_crane_glass: M.glass,
+      M_rtg_yellow: M.yellow, M_tyre: M.rubber, M_rtg_engine: pbr('paint', { color: 0x55585a }),
+      M_hull: pbr('paint', { color: 0x3c4d58 }), M_cabin: M.white, M_orange: M.orange, M_boat_glass: new THREE.MeshStandardMaterial({ color: 0x0d1216, roughness: 0.05, metalness: 0.9, emissive: 0xffb36a, emissiveIntensity: 0.45 }),
+      M_steel: M.steel, M_rubber: M.rubber, M_deck: pbr('steel', { color: 0x777570 }),
+      M_relay_cab: pbr('paint', { color: 0x9a9c96 }), M_relay_stripe: M.yellow, M_relay_dark: M.dark, M_concrete: M.concrete, M_dish: M.white,
+      M_lamp_emit: M.amberLamp
+    };
+    this.matFor = (n) => map[n];
   }
 
   addBox(x0, x1, z0, z1, y1, y0 = 0) { this.boxes.push({ x0: Math.min(x0, x1), x1: Math.max(x0, x1), z0: Math.min(z0, z1), z1: Math.max(z0, z1), y0, y1 }); }
 
   _ground() {
-    const t = TX.groundTextures();
-    t.map.repeat.set(36, 36); t.rough.repeat.set(22, 22);
-    const mat = new THREE.MeshStandardMaterial({ map: t.map, roughnessMap: t.rough, roughness: 1.0, metalness: 0.0, color: 0x8a857c });
+    const c = A.tex.concrete;
+    const rp = (t) => { const k = t.clone(); k.repeat.set(12, 8.5); k.needsUpdate = true; return k; };
+    const mat = new THREE.MeshStandardMaterial({ map: rp(c.a), normalMap: rp(c.n), roughnessMap: rp(c.orm), roughness: 1.0, metalness: 0.0, color: 0xb0aba2, normalScale: new THREE.Vector2(0.9, 0.9) });
     this.groundMat = mat;
-    this.refl.patch(mat, { amount: 1.0 });
+    this.refl.patch(mat, { amount: 1.0, puddle: A.tex.puddles });
     const g = new THREE.Mesh(new THREE.PlaneGeometry(240, 170, 1, 1), mat);
     g.rotation.x = -Math.PI / 2; g.position.set(0, 0, 10 - 0.0);
     g.position.z = (QUAY_Z + 108) / 2; // 从岸线到南端
@@ -97,8 +111,10 @@ export class World {
     this.ground = g;
     this.refl.hidden.push(g);
     // 车道线、斑马线（贴花）
-    const lineMat = new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.35, transparent: true, opacity: 0.55, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
-    const yMat = new THREE.MeshStandardMaterial({ color: 0xd4a23a, roughness: 0.4, transparent: true, opacity: 0.6, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
+    // 磨损标线：alphaMap 由噪声挖洞，车轮常压处更斑驳
+    const worn = TX.wornMask(91);
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.35, transparent: true, opacity: 0.6, alphaMap: worn, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
+    const yMat = new THREE.MeshStandardMaterial({ color: 0xd4a23a, roughness: 0.4, transparent: true, opacity: 0.65, alphaMap: worn, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
     const decal = (m, x, z, w, d, rot = 0) => { const p = new THREE.Mesh(new THREE.PlaneGeometry(w, d), m); p.rotation.set(-Math.PI / 2, 0, rot); p.position.set(x, 0.012, z); p.receiveShadow = true; this.root.add(p); };
     for (let i = 0; i < 8; i++) decal(lineMat, -5 + i * 1.4, 60, 0.7, 4.2);
     for (let i = 0; i < 8; i++) decal(lineMat, -5 + i * 1.4, -22, 0.7, 4.2);
@@ -131,32 +147,37 @@ export class World {
 
   _yard() {
     const r = mulberry(404);
-    const palette = ['#9a4a2e', '#40647a', '#4d6e56', '#85847c', '#a8692f', '#74393a', '#bdb7a7', '#4f5b68'];
-    const prefix = ['HGKU', 'JKXU', 'RTCU', 'MNBU', 'TOLU', 'QEAU', 'WDLU', 'PCHU'];
-    const variants = palette.map((c, i) => {
-      const t = TX.containerTextures(c, 100 + i, `${prefix[i]} ${String(100000 + Math.floor(r() * 899999))} ${Math.floor(r() * 9)}`);
-      const mat = new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normal, roughnessMap: t.rough, roughness: 0.62, metalness: 0.22, normalScale: new THREE.Vector2(0.9, 0.9) });
-      t.normal.repeat.set(4, 1);
-      return mat;
+    const palette = ['#9a4a2e', '#40647a', '#4d6e56', '#85847c', '#a8692f', '#74393a', '#bdb7a7', '#4f5b68', '#2f4f6e', '#8a2f2a'];
+    const cols = palette.map((c) => new THREE.Color(c));
+    // 近景：Blender 波纹钢箱（框架/锁杆/板面三种材质）；远景：低模盒体。按相机距离逐帧分配实例
+    const paint = pbr('paint', { wear: 0.9 });
+    const frame = pbr('paint', { wear: 1.0 });
+    const steel = pbr('steel', { color: 0x9a9a9a });
+    const matOf = { M_cont_paint: paint, M_cont_frame: frame, M_cont_steel: steel };
+    const mkLod = (node) => meshParts('containers', node).map((p) => {
+      const im = new THREE.InstancedMesh(p.geometry, matOf[p.mat], 900);
+      im.count = 0; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false; this.root.add(im); this.refl.hidden.push(im); return { im, frame: p.mat === 'M_cont_frame' };
     });
-    // 端面/顶面只取贴图左侧无文字区域，避免编号被拉伸
-    const fixUV = (geo, long) => {
-      const uv = geo.attributes.uv;
+    const far = (L) => {
+      const g = new THREE.BoxGeometry(L, 2.59, 2.44); g.translate(0, 1.295, 0);
+      const uv = g.attributes.uv, pos = g.attributes.position, nor = g.attributes.normal;
       for (let i = 0; i < uv.count; i++) {
-        const face = Math.floor(i / 4);
-        let u = uv.getX(i), v = uv.getY(i);
-        if (face === 0 || face === 1) u = u * 0.22;            // 端门
-        else if (face === 2 || face === 3) { u = u * (long ? 1 : 0.5); v = v * 0.25 + 0.4; } // 顶/底
-        else if (!long) u = u * 0.5 + 0.5;                     // 20 尺箱取右半（含编号）
-        uv.setXY(i, u, v);
+        const nx = Math.abs(nor.getX(i)), ny = Math.abs(nor.getY(i));
+        const u = nx > 0.5 ? pos.getZ(i) : pos.getX(i), v = ny > 0.5 ? pos.getZ(i) : pos.getY(i);
+        uv.setXY(i, u * 0.5, v * 0.5);
       }
-      uv.needsUpdate = true; return geo;
+      const im = new THREE.InstancedMesh(g, paint, 900); im.count = 0; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false; this.root.add(im); this.refl.hidden.push(im);
+      return im;
     };
-    const geo40 = fixUV(new THREE.BoxGeometry(12.19, 2.59, 2.44), true);
-    const geo20 = fixUV(new THREE.BoxGeometry(6.06, 2.59, 2.44), false);
-    const inst = variants.map((m) => [new THREE.InstancedMesh(geo40, m, 700), new THREE.InstancedMesh(geo20, m, 300)]);
-    inst.flat().forEach((im) => { im.count = 0; im.castShadow = true; im.receiveShadow = true; this.root.add(im); });
-    this.containers = inst;
+    // 代理：全部箱子的盒体。shadow = 只投影不着色（主通道零像素开销）；refl = 只在反射通道出现
+    const proxy = (L, kind) => {
+      const g = new THREE.BoxGeometry(L * 0.985, 2.55, 2.4); g.translate(0, 1.275, 0);
+      const mat = kind === 'shadow' ? new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }) : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.2, map: A.tex.paint.a });
+      const im = new THREE.InstancedMesh(g, mat, 900); im.count = 0; im.frustumCulled = false; im.castShadow = kind === 'shadow'; this.root.add(im);
+      if (kind === 'refl') { im.visible = false; this.refl.only.push(im); } else this.refl.hidden.push(im);
+      return im;
+    };
+    this.cont = { near: [mkLod('cont40'), mkLod('cont20')], far: [far(12.19), far(6.06)], shadow: [proxy(12.19, 'shadow'), proxy(6.06, 'shadow')], refl: [proxy(12.19, 'refl'), proxy(6.06, 'refl')], list: [], cols };
     const excl = [
       ...RELAYS.map((rl) => ({ x: rl.x, z: rl.z, r: 10 })),
       { x: 61, z: 0, r: 26 } // 仓库
@@ -172,19 +193,16 @@ export class World {
       }
       return false;
     };
-    const place = (x, z, long, levels, variantSeed) => {
-      const L = long ? 12.19 : 6.06;
+    const place = (x, z, long, levels) => {
       for (let k = 0; k < levels; k++) {
-        const v = Math.floor(r() * variants.length);
-        const im = inst[v][long ? 0 : 1];
-        const jitter = (r() - 0.5) * 0.18;
-        _q.setFromEuler(new THREE.Euler(0, (r() - 0.5) * 0.012, 0));
-        _m.compose(_p.set(x + jitter, 1.295 + k * 2.6, z + (r() - 0.5) * 0.08), _q, _s.set(r() < 0.5 ? 1 : -1, 1, 1));
-        im.setMatrixAt(im.count++, _m);
+        const ci = Math.floor(r() * cols.length);
+        const c = cols[ci].clone().multiplyScalar(0.85 + r() * 0.3);
+        const m = new THREE.Matrix4();
+        _q.setFromEuler(new THREE.Euler(0, (r() < 0.5 ? 0 : Math.PI) + (r() - 0.5) * 0.012, 0));
+        m.compose(_p.set(x + (r() - 0.5) * 0.18, k * 2.6, z + (r() - 0.5) * 0.08), _q, _s.set(1, 1, 1));
+        this.cont.list.push({ m, c, long: long ? 0 : 1, x, z, y: k * 2.6 + 1.3 });
       }
-      return L;
     };
-    // 行：沿 x 方向排布，每行两列（宽 4.9m）
     for (let z = -34; z < 100; z += 9.2) {
       for (const side of [-1, 1]) {
         let x = side < 0 ? -5.4 : 5.4;
@@ -206,50 +224,50 @@ export class World {
         }
       }
     }
-    inst.flat().forEach((im) => { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); });
+    this.lodDist = 40;
+    // 代理实例只需写一次
+    for (const it of this.cont.list) for (const im of [this.cont.shadow[it.long], this.cont.refl[it.long]]) { const i = im.count++; im.setMatrixAt(i, it.m); im.setColorAt(i, it.c); }
+    for (const im of [...this.cont.shadow, ...this.cont.refl]) { im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; }
+    this.updateLOD(new THREE.Vector3(SPAWN.x, 1.7, SPAWN.z));
+  }
+  setLodDistance(d) { this.lodDist = d; this._lodCam = null; }
+  updateLOD(cam, fwd) {
+    const C = this.cont; const d2 = this.lodDist * this.lodDist;
+    this.lodStats = { near: 0, far: 0 };
+    const cnt = [[0, 0], [0, 0]];
+    for (const set of C.near) for (const p of set) p.im.count = 0;
+    C.far[0].count = 0; C.far[1].count = 0;
+    const fc = new THREE.Color();
+    for (const it of C.list) {
+      const dx = it.x - cam.x, dy = it.y - cam.y, dz = it.z - cam.z;
+      const dd = dx * dx + dy * dy * 0.5 + dz * dz;
+      // 近景高模只给视野前方（含 ±95° 余量）与身边 14 m 内的箱子
+      let near = dd < d2;
+      if (near && fwd && dd > 196) { const L = Math.sqrt(dx * dx + dz * dz) || 1; if ((dx * fwd.x + dz * fwd.z) / L < -0.1) near = false; }
+      if (near) this.lodStats.near++; else this.lodStats.far++;
+      if (near) {
+        for (const p of C.near[it.long]) {
+          const i = p.im.count++;
+          p.im.setMatrixAt(i, it.m);
+          p.im.setColorAt(i, p.frame ? fc.copy(it.c).multiplyScalar(0.78) : it.c);
+        }
+      } else {
+        const im = C.far[it.long]; const i = im.count++;
+        im.setMatrixAt(i, it.m); im.setColorAt(i, it.c);
+      }
+    }
+    for (const im of [...C.near.flat().map((p) => p.im), ...C.far]) {
+      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
   }
 
   _crane(cx, h = 38) {
-    const B = new BeamSet(this.mat.craneRed, 400);
     const z0 = QUAY_Z + 2, z1 = QUAY_Z + 22;
-    const legs = [[-8, z0], [8, z0], [-8, z1], [8, z1]];
-    for (const [x, z] of legs) {
-      B.box(cx + x, h / 2, z, 1.4, h, 1.4);
-      this.addBox(cx + x - 1, cx + x + 1, z - 1, z + 1, h);
-      B.box(cx + x, 0.6, z, 2.4, 1.2, 4.5);
-    }
-    // 门框横梁 + 斜撑
-    for (const z of [z0, z1]) {
-      B.box(cx, h, z, 18, 1.6, 1.6); B.box(cx, h * 0.45, z, 16, 1.0, 1.0);
-      B.beam(new THREE.Vector3(cx - 8, h * 0.45, z), new THREE.Vector3(cx, h, z), 0.6);
-      B.beam(new THREE.Vector3(cx + 8, h * 0.45, z), new THREE.Vector3(cx, h, z), 0.6);
-    }
-    for (const x of [-8, 8]) {
-      B.box(cx + x, h * 0.45, (z0 + z1) / 2, 1, 1, z1 - z0);
-      B.beam(new THREE.Vector3(cx + x, 2, z0), new THREE.Vector3(cx + x, h * 0.45, z1), 0.5);
-    }
-    // 大臂：伸向海面
-    const bh = h + 4;
-    for (const x of [-3, 3]) {
-      B.box(cx + x, bh, QUAY_Z - 20, 1.2, 2.4, 110);
-      for (let z = QUAY_Z - 72; z < QUAY_Z + 32; z += 6) B.beam(new THREE.Vector3(cx + x, bh - 1.1, z), new THREE.Vector3(cx + x, bh + 1.1, z + 6), 0.25);
-    }
-    for (let z = QUAY_Z - 72; z < QUAY_Z + 32; z += 6) B.box(cx, bh - 1.2, z, 6, 0.3, 0.3);
-    // A 字塔 + 拉杆
-    const apex = new THREE.Vector3(cx, h + 22, z1 - 3);
-    for (const x of [-3, 3]) {
-      B.beam(new THREE.Vector3(cx + x, h, z1), apex, 1.0);
-      B.beam(new THREE.Vector3(cx + x, h, z0), apex, 0.8);
-      B.beam(apex, new THREE.Vector3(cx + x, bh + 1, QUAY_Z - 50), 0.25);
-      B.beam(apex, new THREE.Vector3(cx + x, bh + 1, QUAY_Z + 30), 0.25);
-    }
-    // 机房、小车、吊具
-    B.box(cx, h + 4, z1 + 4, 8, 5, 8);
-    B.box(cx, bh - 2.4, QUAY_Z - 6, 5, 2.6, 4);
-    const steelSet = new BeamSet(this.mat.dark, 20);
-    for (let i = 0; i < 4; i++) steelSet.beam(new THREE.Vector3(cx - 1.6 + i * 1.07, bh - 3.7, QUAY_Z - 6), new THREE.Vector3(cx - 1.6 + i * 1.07, 16, QUAY_Z - 6), 0.08);
-    steelSet.box(cx, 15.5, QUAY_Z - 6, 12, 1, 2.6);
-    this.root.add(B.done(), steelSet.done());
+    const m = instance('cranes', 'sts', this.matFor);
+    m.rotation.y = Math.PI; m.position.set(cx, 0, z0);
+    if (h !== 38) m.scale.set(1, h / 38, 1);
+    this.root.add(m);
+    for (const [x, z] of [[-8, z0], [8, z0], [-8, z1], [8, z1]]) this.addBox(cx + x - 1, cx + x + 1, z - 1, z + 1, h);
     // 航空障碍灯
     this._lampGlow(cx, h + 22.5, z1 - 3, 0xff3a28, 2.2, false);
   }
@@ -258,12 +276,7 @@ export class World {
     this._crane(-34); this._crane(-2); this._crane(30, 40);
     // 堆场轮胎吊（RTG）
     const rtg = (cx, cz) => {
-      const B = new BeamSet(this.mat.yellow, 60);
-      for (const x of [-11, 11]) for (const z of [-3.5, 3.5]) { B.box(cx + x, 9, cz + z, 0.9, 18, 0.9); B.box(cx + x, 0.7, cz + z, 1.6, 1.4, 1.6); }
-      for (const x of [-11, 11]) { B.box(cx + x, 18, cz, 1.2, 1.4, 8); B.box(cx + x, 6, cz, 0.6, 0.6, 7); }
-      for (const z of [-3.5, 3.5]) B.box(cx, 18.6, cz + z, 24, 1.4, 1.2);
-      B.box(cx + 4, 17.6, cz, 3, 2, 6);
-      this.root.add(B.done());
+      const m = instance('cranes', 'rtg', this.matFor); m.position.set(cx, 0, cz); this.root.add(m);
       for (const x of [-11, 11]) for (const z of [-3.5, 3.5]) this.addBox(cx + x - 0.6, cx + x + 0.6, cz + z - 0.6, cz + z + 0.6, 18);
     };
     rtg(-40, 8.6); rtg(38, 45);
@@ -321,36 +334,31 @@ export class World {
 
   _lamps() {
     const pts = [[-4.5, 66], [4.5, 30], [-4.5, -6], [4.5, -36], [-24, -30], [24, -28], [-48, 22], [48, 26], [-30, 64], [40, -10]];
-    const B = new BeamSet(this.mat.steel, 200);
     this.lights = [];
+    const parts = meshParts('props', 'lamppost');
+    const ims = parts.map((p) => { const im = new THREE.InstancedMesh(p.geometry, this.matFor(p.mat) || this.mat.steel, pts.length); im.castShadow = true; im.receiveShadow = true; this.root.add(im); return im; });
     pts.forEach(([x, z], i) => {
       const h = 16;
-      B.box(x, h / 2, z, 0.35, h, 0.35);
-      B.box(x, h, z, 2.6, 0.25, 0.5);
-      B.box(x, 0.4, z, 0.8, 0.8, 0.8);
+      _m.compose(_p.set(x, 0, z), _q.identity(), _s.set(1, 1, 1));
+      ims.forEach((im) => im.setMatrixAt(i, _m));
       this.addBox(x - 0.3, x + 0.3, z - 0.3, z + 0.3, h);
-      for (const dx of [-1, 1]) {
-        const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.4), this.mat.amberLamp);
-        lamp.position.set(x + dx * 0.9, h - 0.15, z); this.root.add(lamp);
-      }
       this._lampGlow(x, h - 0.3, z, 0xffb366, 5.5);
       if (i < 6) {
         const L = new THREE.PointLight(0xffa860, 26, 26, 1.7);
         L.position.set(x, h - 1, z); this.root.add(L); this.lights.push(L);
       }
     });
-    this.root.add(B.done());
+    ims.forEach((im) => { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); });
   }
 
   _props() {
     const r = mulberry(91);
     // 混凝土隔离墩（掩体）
-    const jersey = new THREE.CylinderGeometry(0.25, 0.5, 0.9, 4, 1); jersey.rotateY(Math.PI / 4); jersey.scale(1, 1, 1);
-    const barrierGeo = new THREE.BoxGeometry(3, 0.95, 0.6);
+    const barrierGeo = meshParts('props', 'barrier')[0].geometry;
     const barriers = [[-3.6, 50, 1.57], [3.6, 12, 1.57], [-3.6, -14, 1.57], [8, -46, 0.1], [-16, -44, 1.57], [20, -50, 0], [-40, -40, 0.3], [30, 10, 1.57], [-24, 30, 1.57], [-44, 44, 0], [48, -6, 0], [-36, -56, 0], [-26, -55, 1.2], [44, 9, 1.57], [-30, 32, 0]];
     const bm = new THREE.InstancedMesh(barrierGeo, this.mat.concrete, barriers.length); bm.castShadow = bm.receiveShadow = true;
     barriers.forEach(([x, z, ry], i) => {
-      _m.compose(_p.set(x, 0.47, z), _q.setFromEuler(new THREE.Euler(0, ry, 0)), _s.set(1, 1, 1)); bm.setMatrixAt(i, _m);
+      _m.compose(_p.set(x, 0, z), _q.setFromEuler(new THREE.Euler(0, ry, 0)), _s.set(1, 1, 1)); bm.setMatrixAt(i, _m);
       const c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
       const hx = 1.5 * c + 0.3 * s, hz = 1.5 * s + 0.3 * c;
       this.addBox(x - hx, x + hx, z - hz, z + hz, 0.95);
@@ -363,7 +371,7 @@ export class World {
       m.position.set((r() < 0.5 ? -1 : 1) * (3.4 + r() * 1.4), 0.35, -50 + r() * 120); m.castShadow = true; this.root.add(m);
     }
     // 托盘与木箱
-    const crate = new THREE.MeshStandardMaterial({ color: 0x6b5236, roughness: 0.85, map: TX.noiseTexture('#6b5236', 33, false) });
+    const crate = new THREE.MeshStandardMaterial({ color: 0x6b5236, roughness: 0.85, map: TX.noiseTexture('#6b5236', 33, false), normalMap: A.tex.polymer.n });
     const crates = [[-30, 41], [-37, 34], [41, 5], [47, -1], [-27, -47], [-33, -53], [33, -57], [3.8, 64], [-4, 20], [14, -30]];
     for (const [x, z] of crates) {
       const sz = 1.1 + r() * 0.3;
@@ -396,29 +404,22 @@ export class World {
     for (const def of RELAYS) {
       const g = new THREE.Group();
       g.position.set(def.x, 0, def.z);
-      const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.2, 1.0), new THREE.MeshStandardMaterial({ color: 0xa8aaa4, roughness: 0.5, metalness: 0.2, emissive: 0x2a2620, emissiveIntensity: 1.0, map: TX.noiseTexture('#6a6c6c', 70 + def.id.charCodeAt(0)) }));
-      cab.position.y = 1.1; cab.castShadow = cab.receiveShadow = true; g.add(cab);
-      const base = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.3, 1.8), this.mat.concrete); base.position.y = 0.15; base.receiveShadow = true; g.add(base);
-      const mast = new BeamSet(this.mat.steel, 64);
-      for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; mast.beam(new THREE.Vector3(Math.cos(a) * 0.5, 0, Math.sin(a) * 0.5 - 1.3), new THREE.Vector3(Math.cos(a) * 0.15, 9, Math.sin(a) * 0.15 - 1.3), 0.07); }
-      for (let y = 1; y < 9; y += 1.2) mast.box(0, y, -1.3, 0.8 - y * 0.07, 0.05, 0.05);
-      g.add(mast.done());
-      const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.2, 0.25, 16), this.mat.white); dish.position.set(0, 7.2, -1.1); dish.rotation.x = Math.PI / 2.4; g.add(dish);
-      // 状态灯 / 屏幕
+      // Blender 模型：机柜、百叶、门锁、线管、格构天线塔。无自发光，靠环境光 + 补光照亮
+      const m = instance('props', 'relay', this.matFor); m.rotation.y = Math.PI; g.add(m);
       const lightMat = new THREE.MeshBasicMaterial({ color: 0xffb347 });
-      const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.32), lightMat); panel.position.set(0, 1.5, -0.51); panel.rotation.y = Math.PI; g.add(panel);
-      const panel2 = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.32), lightMat); panel2.position.set(0, 1.5, 0.51); g.add(panel2);
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.64, 0.16, 1.04), this.mat.yellow); stripe.position.y = 0.45; g.add(stripe);
-      for (let k = 0; k < 5; k++) { const v = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.03, 0.02), this.mat.dark); v.position.set(0, 0.8 + k * 0.08, 0.52); g.add(v); }
-      const lab2 = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.38), new THREE.MeshStandardMaterial({ map: TX.signTexture(['中继 ' + def.id, '主控上行'], { w: 256, h: 112, size: 40, bg: '#ffb347', fg: '#14110d' }) })); lab2.position.set(0, 2.0, 0.51); g.add(lab2);
+      for (const sz of [-1, 1]) {
+        const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.26), lightMat); panel.position.set(0, 1.62, sz * 0.545); if (sz < 0) panel.rotation.y = Math.PI; g.add(panel);
+        const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.38), new THREE.MeshStandardMaterial({ map: TX.signTexture(['中继 ' + def.id, '主控上行'], { w: 256, h: 112, size: 40, bg: '#ffb347', fg: '#14110d' }), roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -1 }));
+        lab.position.set(0, 2.12, sz * 0.545); if (sz < 0) lab.rotation.y = Math.PI; g.add(lab);
+      }
       const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), lightMat); beacon.position.set(0, 9.2, -1.3); g.add(beacon);
       const glow = this._lampGlow(def.x, 9.2, def.z - 1.3, 0xffb347, 3.5, false);
-      const sideLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.38), new THREE.MeshStandardMaterial({ map: TX.signTexture(['中继 ' + def.id, '主控上行'], { w: 256, h: 112, size: 40, bg: '#ffb347', fg: '#14110d' }) }));
-      sideLabel.position.set(0, 2.0, -0.51); sideLabel.rotation.y = Math.PI; g.add(sideLabel);
       const cable = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.05, 6, 20, Math.PI), this.mat.rubber); cable.position.set(1.0, 0, 0.6); cable.rotation.y = 1.2; g.add(cable);
       const light = new THREE.PointLight(0xffa040, 16, 12, 1.8); light.position.set(0, 3.4, 0.9); g.add(light);
+      // 背侧冷色补光（模拟天光反弹），避免背光面死黑
+      const fill = new THREE.PointLight(0x9fb4cc, 5, 7, 1.6); fill.position.set(0.6, 2.6, -2.2); g.add(fill);
       this.root.add(g);
-      this.addBox(def.x - 0.85, def.x + 0.85, def.z - 0.55, def.z + 0.55, 2.2);
+      this.addBox(def.x - 0.85, def.x + 0.85, def.z - 0.55, def.z + 0.55, 2.55);
       this.addBox(def.x - 0.5, def.x + 0.5, def.z - 1.8, def.z - 0.8, 9);
       this.relays.push({ ...def, group: g, lightMat, glow, light, cut: false, blink: Math.random() * 6 });
     }
@@ -439,39 +440,16 @@ export class World {
   }
 
   _boat() {
-    const g = new THREE.Group();
-    const hullMat = new THREE.MeshStandardMaterial({ color: 0x34424a, roughness: 0.4, metalness: 0.55, map: TX.noiseTexture('#46545c', 81) });
-    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xb9bcb8, roughness: 0.5, metalness: 0.2, map: TX.noiseTexture('#c4c6c0', 82) });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0d1216, roughness: 0.05, metalness: 0.9, emissive: 0xffb36a, emissiveIntensity: 0.55 });
-    // 俯视轮廓（船头朝 -x），向上挤出成船体
-    const sh = new THREE.Shape();
-    sh.moveTo(7, -2.6); sh.lineTo(-3, -2.6); sh.quadraticCurveTo(-7.5, -2.2, -10, 0); sh.quadraticCurveTo(-7.5, 2.2, -3, 2.6); sh.lineTo(7, 2.6); sh.closePath();
-    const hullGeo = new THREE.ExtrudeGeometry(sh, { depth: 1.8, bevelEnabled: true, bevelSize: 0.25, bevelThickness: 0.2, bevelSegments: 2 });
-    hullGeo.rotateX(-Math.PI / 2);
-    const hull = new THREE.Mesh(hullGeo, hullMat); hull.position.y = -0.4; hull.castShadow = hull.receiveShadow = true; g.add(hull);
-    const bandGeo = new THREE.ExtrudeGeometry(sh, { depth: 0.28, bevelEnabled: false }); bandGeo.rotateX(-Math.PI / 2); bandGeo.scale(1.03, 1, 1.06);
-    const band = new THREE.Mesh(bandGeo, this.mat.orange); band.position.y = 1.15; g.add(band);
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(15.5, 0.12, 4.8), this.mat.dark); deck.position.set(-0.8, 1.45, 0); g.add(deck);
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(5.2, 2.0, 3.6), whiteMat); cabin.position.set(1.5, 2.5, 0); cabin.castShadow = true; g.add(cabin);
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.18, 4.0), whiteMat); roof.position.set(1.3, 3.58, 0); g.add(roof);
-    const win = new THREE.Mesh(new THREE.BoxGeometry(5.25, 0.7, 3.65), glassMat); win.position.set(1.5, 2.95, 0); g.add(win);
-    const front = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 3.2), glassMat); front.position.set(-1.12, 2.9, 0); front.rotation.z = -0.35; g.add(front);
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 3.2), this.mat.steel); mast.position.set(2.5, 5.2, 0); g.add(mast);
-    const yard = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 1.6), this.mat.steel); yard.position.set(2.5, 6.2, 0); g.add(yard);
-    const posts = new BeamSet(this.mat.steel, 80);
-    for (let x = -7; x <= 6.5; x += 1.5) for (const z of [-2.4, 2.4]) posts.box(x, 1.95, z, 0.05, 0.9, 0.05);
-    for (const z of [-2.4, 2.4]) posts.box(-0.25, 2.4, z, 13.6, 0.05, 0.05);
-    g.add(posts.done());
-    for (const x of [-6, -2, 5]) for (const z of [-2.75, 2.75]) { const f = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.9, 10), this.mat.rubber); f.rotation.x = Math.PI / 2; f.position.set(x, 0.7, z); g.add(f); }
-    g.position.set(BOAT.x, -1.45, BOAT.z + 2.4); g.rotation.y = 0;
+    const g = instance('props', 'boat', this.matFor);
+    g.position.set(BOAT.x, -2.45, BOAT.z + 2.4);
     this.root.add(g);
     this.boat = g;
     // 跳板（从岸边斜向甲板）
-    const ramp = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 5.2), this.mat.steel); ramp.position.set(BOAT.x, -0.25, QUAY_Z - 2.3); ramp.rotation.x = -0.12; this.root.add(ramp);
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 5.4), this.mat.steel); ramp.position.set(BOAT.x, -0.32, QUAY_Z - 2.3); ramp.rotation.x = -0.12; ramp.castShadow = ramp.receiveShadow = true; this.root.add(ramp);
     const rails = new BeamSet(this.mat.yellow, 20);
-    for (const dx of [-0.7, 0.7]) rails.box(BOAT.x + dx, 0.55, QUAY_Z - 2.3, 0.05, 0.05, 5.2);
+    for (const dx of [-0.7, 0.7]) rails.box(BOAT.x + dx, 0.5, QUAY_Z - 2.3, 0.05, 0.05, 5.2);
     this.root.add(rails.done());
-    this.boatBeacon = this._lampGlow(BOAT.x + 2.5, 5.0, BOAT.z + 2.4, 0x6ad1ff, 4.5, false);
+    this.boatBeacon = this._lampGlow(BOAT.x + 2.6, -2.45 + 7.2, BOAT.z + 2.4, 0x6ad1ff, 4.5, false);
     this.boatBeacon.visible = false;
     const bl = new THREE.PointLight(0x9adfff, 0, 16, 1.8); bl.position.set(BOAT.x, 3, BOAT.z + 5); this.root.add(bl); this.boatLight = bl;
   }
@@ -494,6 +472,8 @@ export class World {
   }
 
   update(dt, t, camera) {
+    this.lodT -= dt;
+    if (this.lodT <= 0) { this.lodT = 0.12; camera.getWorldDirection(this._fwd || (this._fwd = new THREE.Vector3())); this.updateLOD(camera.position, this._fwd); }
     this.groundMat.userData.rippleTime.value = t;
     this.waterMat.userData.rippleTime.value = t;
     this.waterMat.normalMap.offset.set(t * 0.004, t * 0.01);

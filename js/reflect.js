@@ -10,6 +10,7 @@ export class PlanarReflection {
     this.cam = new THREE.PerspectiveCamera();
     this.textureMatrix = new THREE.Matrix4();
     this.hidden = [];
+    this.only = []; // 仅在反射中出现的低模代理
     this.planeY = 0;
     this._v = new THREE.Vector3();
     this._t = new THREE.Vector3();
@@ -46,6 +47,7 @@ export class PlanarReflection {
     this.textureMatrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
     this.textureMatrix.multiply(c.projectionMatrix).multiply(c.matrixWorldInverse);
     for (const o of this.hidden) o.visible = false;
+    for (const o of this.only) o.visible = true;
     const r = this.renderer;
     const prevRT = r.getRenderTarget();
     const prevShadow = r.shadowMap.autoUpdate;
@@ -56,6 +58,7 @@ export class PlanarReflection {
     r.setRenderTarget(prevRT);
     r.shadowMap.autoUpdate = prevShadow;
     for (const o of this.hidden) o.visible = true;
+    for (const o of this.only) o.visible = false;
   }
   // 把反射注入 MeshStandardMaterial
   patch(material, opts = {}) {
@@ -68,12 +71,13 @@ export class PlanarReflection {
       sh.uniforms.reflStrength = self.strength;
       sh.uniforms.textureMatrix = { value: self.textureMatrix };
       sh.uniforms.rippleTime = material.userData.rippleTime;
+      sh.uniforms.tPuddle = { value: opts.puddle || self.blank };
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nuniform mat4 textureMatrix;\nvarying vec4 vReflUv;\nvarying vec3 vWPos;')
         .replace('#include <project_vertex>', '#include <project_vertex>\nvec4 wp4 = modelMatrix * vec4(transformed,1.0);\nvReflUv = textureMatrix * wp4;\nvWPos = wp4.xyz;');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
-uniform sampler2D tRefl; uniform float reflStrength; uniform float rippleTime;
+uniform sampler2D tRefl; uniform float reflStrength; uniform float rippleTime; uniform sampler2D tPuddle;
 varying vec4 vReflUv; varying vec3 vWPos;
 float rh(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 vec2 ripple(vec2 p, float t){
@@ -88,6 +92,12 @@ vec2 ripple(vec2 p, float t){
   }
   return acc;
 }`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+float pud = ${opts.puddle ? 'smoothstep(0.2, 0.8, texture2D(tPuddle, vWPos.xz / 150.0 + 0.5).r)' : '0.0'};
+roughnessFactor = mix(roughnessFactor, 0.025, pud);
+diffuseColor.rgb *= mix(1.0, 0.5, pud);`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+normal = normalize(mix(normal, nonPerturbedNormal, pud * 0.9));`)
         .replace('#include <opaque_fragment>', `#include <opaque_fragment>
 {
   float wet = clamp(1.0 - roughnessFactor * 1.15, 0.0, 1.0);

@@ -5,7 +5,9 @@ import { Sky } from './sky.js';
 import { PlanarReflection } from './reflect.js';
 import { FX, Rain } from './fx.js';
 import { Enemies } from './enemies.js';
-import { Weapon, RIFLE } from './weapon.js';
+import { Weapon, RIFLE, SHOTGUN, GUNS, GRENADE, MELEE } from './weapon.js';
+import { loadAssets, instance, pbr } from './assets.js';
+import { NavGrid } from './nav.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
@@ -14,10 +16,10 @@ import { damp, fmtTime } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const QUAL = {
-  low: { pr: 0.75, shadow: 0, refl: 0, post: false, rain: 1600 },
-  medium: { pr: 1, shadow: 1024, refl: 0.35, post: true, rain: 3000 },
-  high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200 },
-  ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000 }
+  low: { pr: 0.75, shadow: 0, refl: 0, post: false, rain: 1600, lod: 16 },
+  medium: { pr: 1, shadow: 1024, refl: 0.35, post: true, rain: 3000, lod: 26 },
+  high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200, lod: 36 },
+  ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 60 }
 };
 const PHASES = [
   { max: 4, every: 7, mix: { hound: 1 }, wardens: 0 },
@@ -44,7 +46,8 @@ export class Game {
     this.fov = 74;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.info.autoReset = false;
     this.renderer.autoClear = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.fov, innerWidth / innerHeight, 0.05, 1200);
@@ -57,27 +60,34 @@ export class Game {
 
   async boot(progress) {
     const step = async (txt, p) => { progress(txt, p); await new Promise((r) => setTimeout(r, 16)); };
-    await step('正在铺设港区路面', 0.1);
+    await step('正在载入模型与材质', 0.02);
+    await loadAssets((p) => progress('正在载入模型与材质 ' + Math.round(p * 100) + '%', 0.02 + p * 0.3));
+    await step('正在铺设港区路面', 0.35);
     this.refl = new PlanarReflection(this.renderer, 0.5);
     this.sky = new Sky(this.sunDir);
     this.scene.add(this.sky.mesh);
-    this.refl.hidden = [];
+    this.refl.hidden = []; this.refl.only = [];
     await step('正在布置集装箱与锈迹', 0.3);
     this.world = new World(this.scene, this.refl, this.quality);
+    this.nav = new NavGrid(this.world);
     await step('正在架设岸桥起重机', 0.5);
     this._lights();
     await step('正在生成天空与雨幕', 0.65);
     this._env();
     this.fx = new FX(this.scene, this.world.glowTex);
+    this.fx.world = this.world;
     this.rain = new Rain(this.scene, 5000);
     this.refl.hidden.push(this.rain.mesh);
     await step('正在唤醒机械单元', 0.8);
     this.enemies = new Enemies(this.scene, this.world, this.fx, this.audio);
     this.enemies.onKill = (e) => this._onKill(e);
+    this.enemies.nav = this.nav;
     this.weapon = new Weapon(this.camera, this.world.glowTex);
     this.weapon.scene.environment = this.scene.environment;
     this.player = new Player(this.camera, this.world, this.input);
-    this.player.onHurt = () => { this.audio.hurt(); };
+    this.player.onHurt = (n) => { this.audio.hurt(); this.shake = Math.min(1, this.shake + 0.25 + n * 0.01); };
+    this.weapon.onShell = () => this.audio.shellIn();
+    this.shake = 0; this.recoilBack = 0; this.nades = []; this.perf = { calls: 0, tris: 0, fps: 0 };
     this.input.onLook = (dx, dy) => this.weapon.addSway(dx, dy);
     this.input.onLockChange = (l) => this._onLock(l);
     this.post = new PostFX(this.renderer, { quality: 'high' });
@@ -102,7 +112,7 @@ export class Game {
     sun.position.copy(this.sunDir).multiplyScalar(120);
     sun.castShadow = true;
     const sc = sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 1; sc.far = 400;
-    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
+    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04; sun.shadow.radius = 3.5; sun.shadow.blurSamples = 12;
     this.scene.add(sun, sun.target);
     this.sun = sun;
     this.hemi = new THREE.HemisphereLight(0xa9bad2, 0x5e5448, 2.0);
@@ -113,7 +123,7 @@ export class Game {
     const pm = new THREE.PMREMGenerator(this.renderer);
     const es = new THREE.Scene();
     const sky2 = new Sky(this.sunDir); sky2.mesh.material.uniforms = this.sky.uniforms; es.add(sky2.mesh);
-    const groundCol = new THREE.Mesh(new THREE.CircleGeometry(800, 16), new THREE.MeshBasicMaterial({ color: 0x2b2824 }));
+    const groundCol = new THREE.Mesh(new THREE.CircleGeometry(800, 16), new THREE.MeshBasicMaterial({ color: 0x4d4943 }));
     groundCol.rotation.x = -Math.PI / 2; groundCol.position.y = -5; es.add(groundCol);
     this.scene.environment = pm.fromScene(es, 0.02).texture;
     this.scene.environmentIntensity = 1.6;
@@ -132,6 +142,7 @@ export class Game {
     this.post.enabled = c.post;
     this.post.applyQuality(q === 'ultra' ? 'high' : q === 'medium' ? 'medium' : q);
     this.rain.setCount(c.rain);
+    this.world.setLodDistance(c.lod); this.world.updateLOD(this.camera.position);
     this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; });
     this._resize();
     document.querySelectorAll('#qualSeg button').forEach((b) => b.classList.toggle('on', b.dataset.q === q));
@@ -152,7 +163,7 @@ export class Game {
     for (let d = -360; d <= 720; d += 15) { const n = ((d % 360) + 360) % 360; html += `<span class="${names[n] ? 'card' : ''}" style="left:${(d + 360) * 4}px">${names[n] || String(n).padStart(3, '0')}</span>`; }
     strip.innerHTML = html;
     $('compassMarks').innerHTML = RELAYS.map((r) => `<span data-id="${r.id}"><b>${r.id}</b><em></em></span>`).join('') + '<span data-id="boat" class="boat hidden"><b>艇</b><em></em></span>';
-    $('magTicks').innerHTML = '<i></i>'.repeat(RIFLE.mag);
+    this._weapHud();
     const unlock = () => this.audio.resume();
     addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
     $('btnStart').onclick = () => { this.audio.ui(); this.start(); };
@@ -197,6 +208,8 @@ export class Game {
     this.stats = { shots: 0, hits: 0, weak: 0, kills: 0, time: 0 };
     this.radioQ = []; this.radioT = 0; this.lowHpTold = 0; this.ammoTold = false; this.boatTold = false;
     this.coverT = 0; this.inCover = false;
+    for (const n of this.nades) this.scene.remove(n.m); this.nades = []; this.shake = 0; this.recoilBack = 0;
+    this._weapHud();
     this.mode = 'play';
     this._show(null);
     $('caption').classList.remove('hidden'); $('caption').style.animation = 'none'; void $('caption').offsetWidth; $('caption').style.animation = '';
@@ -258,11 +271,13 @@ export class Game {
     this.stats.kills++;
     this._hitmark('kill');
     const drop = e.type === 'warden' ? 1 : e.type === 'gull' ? 0.3 : 0.38;
-    if (Math.random() < drop || (this.weapon.reserve < 40 && Math.random() < 0.7)) this._spawnPickup(e.pos.x, e.pos.z);
+    const w = this.weapon; const low = w.slots[0].reserve < 40 || w.slots[1].reserve < 8 || w.grenades === 0;
+    if (Math.random() < drop || (low && Math.random() < 0.7)) this._spawnPickup(e.pos.x, e.pos.z);
   }
   _spawnPickup(x, z) {
     const g = new THREE.Group();
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.32), new THREE.MeshStandardMaterial({ color: 0x4a5a3a, roughness: 0.6, metalness: 0.3 }));
+    this.crateMat = this.crateMat || pbr('enemy', { color: 0x5a6a44, wearColor: 0x8a8a80 });
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.32), this.crateMat);
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.06, 0.34), new THREE.MeshBasicMaterial({ color: 0xffb347 }));
     g.add(box, band);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.world.glowTex, color: 0xffb347, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.6 })); glow.scale.setScalar(1.4); g.add(glow);
@@ -275,43 +290,165 @@ export class Game {
     h.style.transition = 'none'; h.style.opacity = 1; void h.offsetWidth; h.style.transition = 'opacity .35s'; h.style.opacity = 0;
   }
 
+  _weapHud() {
+    const w = this.weapon; if (!w) return;
+    $('magTicks').innerHTML = '<i></i>'.repeat(w.def.mag);
+    $('magTicks').classList.toggle('big', w.def.mag < 10);
+    $('weapName').textContent = (w.cur + 1) + ' · ' + w.def.name;
+    this._hudWeap = w.cur;
+  }
   _fire() {
-    const w = this.weapon;
+    const w = this.weapon; const d = w.def;
     const r = w.tryFire();
     if (r === 'empty') {
       this.audio.dry();
-      if (w.startReload()) this.audio.reload(RIFLE.reload);
+      if (w.startReload()) this.audio.reload(w.reloadTotal);
       return;
     }
     if (r !== 'fire') return;
     this.stats.shots++;
-    this.audio.shot();
+    if (d.id === 'shotgun') { this.audio.shotgun(); setTimeout(() => this.audio.pump(), 260); } else this.audio.shot();
     const cam = this.camera;
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-    const sp = w.spread(Math.min(1, this.player.speed / 5), this.player.crouch);
-    dir.x += (Math.random() - 0.5) * sp * 2; dir.y += (Math.random() - 0.5) * sp * 2; dir.z += (Math.random() - 0.5) * sp * 2; dir.normalize();
     const o = cam.position.clone();
-    const wh = this.world.raycast(o, dir, RIFLE.range);
-    const eh = this.enemies.raycast(o, dir, wh.t);
     w.holder.updateMatrixWorld(true);
     const muzzle = w.muzzleWorld();
-    let end;
-    if (eh) {
-      end = eh.point; this.stats.hits++; if (eh.weak) this.stats.weak++;
-      const killed = this.enemies.damage(eh.e, RIFLE.dmg * (0.92 + Math.random() * 0.16), eh.weak, eh.point);
-      if (!killed) this._hitmark(eh.weak ? 'weak' : 'hit');
-      this.audio.hit(eh.weak);
-    } else {
-      end = o.clone().addScaledVector(dir, wh.t);
-      if (wh.hit) { this.fx.spark(end, 5, [1, 0.8, 0.5], 4, 0.3, 0.05); this.fx.puff(end, 0.6, 0.6); if (Math.random() < 0.4) this.audio.impact(end); }
+    const sp = w.spread(Math.min(1, this.player.speed / 5), this.player.crouch);
+    const dmgBy = new Map(); let anyHit = false, anyWeak = false;
+    for (let k = 0; k < d.pellets; k++) {
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+      // 霰弹：圆盘内均匀分布
+      const a = Math.random() * Math.PI * 2, rr = d.pellets > 1 ? Math.sqrt(Math.random()) * sp : (Math.random() - 0.5) * sp * 2;
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion), up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+      if (d.pellets > 1) dir.addScaledVector(right, Math.cos(a) * rr).addScaledVector(up, Math.sin(a) * rr);
+      else { dir.x += rr; dir.y += (Math.random() - 0.5) * sp * 2; dir.z += (Math.random() - 0.5) * sp * 2; }
+      dir.normalize();
+      const wh = this.world.raycast(o, dir, d.range);
+      const eh = this.enemies.raycast(o, dir, wh.t);
+      let end;
+      if (eh) {
+        end = eh.point; anyHit = true; if (eh.weak) anyWeak = true;
+        const falloff = d.pellets > 1 ? Math.max(0.35, 1 - eh.t / 30) : 1;
+        const cur = dmgBy.get(eh.e) || { dmg: 0, weak: false, point: eh.point };
+        cur.dmg += d.dmg * falloff * (0.92 + Math.random() * 0.16) * (eh.weak ? eh.e.def.weakMul : 1);
+        cur.weak = cur.weak || eh.weak; dmgBy.set(eh.e, cur);
+        this.fx.spark(eh.point, eh.weak ? 10 : 5, eh.weak ? [1, 0.55, 0.2] : [1, 0.85, 0.6], eh.weak ? 7 : 5, 0.35, 0.06);
+      } else {
+        end = o.clone().addScaledVector(dir, wh.t);
+        if (wh.hit) {
+          // 击中钢面：火花沿法线反弹
+          const n = new THREE.Vector3(...wh.normal);
+          this.fx.spark(end.clone().addScaledVector(n, 0.05), d.pellets > 1 ? 3 : 7, [1, 0.8, 0.5], 5, 0.35, 0.05);
+          if (k % 3 === 0) this.fx.puff(end, 0.6, 0.6);
+          if (Math.random() < 0.4) this.audio.impact(end);
+        }
+      }
+      if (k === 0 ? Math.random() < 0.6 : Math.random() < 0.25) this.fx.tracer(muzzle, end);
     }
-    if (Math.random() < 0.55) this.fx.tracer(muzzle, end);
-    this.fx.light(muzzle, 0xffa050, 14, 0.05, 7);
-    // 后坐
+    if (anyHit) {
+      this.stats.hits++; if (anyWeak) this.stats.weak++;
+      let killedAny = false;
+      for (const [e, v] of dmgBy) { if (this.enemies.damage(e, v.dmg, false, v.point, true)) killedAny = true; }
+      if (!killedAny) this._hitmark(anyWeak ? 'weak' : 'hit');
+      this.audio.hit(anyWeak);
+    }
+    this.fx.light(muzzle, 0xffa050, d.pellets > 1 ? 30 : 14, 0.05, 8);
+    if (d.pellets > 1) this.fx.puff(muzzle.clone().add(new THREE.Vector3(0, 0.05, 0)), 0.5, 0.8);
+    // 后坐：上跳 + 部分自动回落
     const adsK = w.ads > 0.5 ? 0.55 : 1;
-    this.player.pitch += (0.011 + Math.random() * 0.005) * adsK;
-    this.player.yaw += (Math.random() - 0.5) * 0.008 * adsK;
-    if (w.ammo === 0 && w.reserve > 0 && w.startReload()) this.audio.reload(RIFLE.reload);
+    const kick = (d.recoil + Math.random() * d.recoil * 0.45) * adsK;
+    this.player.pitch += kick; this.recoilBack += kick * 0.55;
+    this.player.yaw += (Math.random() - 0.5) * d.recoil * 0.7 * adsK;
+    this.shake = Math.min(1, this.shake + (d.pellets > 1 ? 0.22 : 0.05));
+    if (w.ammo === 0 && w.reserve > 0 && w.startReload()) this.audio.reload(w.reloadTotal);
+  }
+
+  _melee() {
+    const w = this.weapon;
+    if (!w.melee()) return;
+    this.audio.swing();
+    const pl = this.player; const fwd = new THREE.Vector3(-Math.sin(pl.yaw), 0, -Math.cos(pl.yaw));
+    let hit = null, best = 1e9;
+    for (const e of this.enemies.list) {
+      if (!e.alive) continue;
+      const ex = e.pos.x - pl.position.x, ez = e.pos.z - pl.position.z, ey = e.pos.y - pl.position.y;
+      const d = Math.hypot(ex, ez); const reach = MELEE.range + (e.type === 'warden' ? 0.8 : 0.3);
+      if (d > reach || Math.abs(ey) > 3) continue;
+      const cos = (ex * fwd.x + ez * fwd.z) / (d || 1);
+      if (cos < 0.55 && d > 0.9) continue;
+      if (d < best) { best = d; hit = e; }
+    }
+    this.stats.melee = (this.stats.melee || 0) + 1;
+    if (hit) {
+      const p = hit.pos.clone(); p.y += hit.type === 'warden' ? 1.6 : hit.type === 'gull' ? 0 : 0.8;
+      setTimeout(() => {
+        if (!hit.alive) return;
+        this.audio.bash(); this.shake = Math.min(1, this.shake + 0.3);
+        this.stats.meleeHits = (this.stats.meleeHits || 0) + 1;
+        const killed = this.enemies.damage(hit, MELEE.dmg, false, p);
+        if (!killed) this._hitmark('hit');
+        // 击退
+        if (hit.alive && hit.type !== 'warden') { const k = 1.6; const dx = hit.pos.x - pl.position.x, dz = hit.pos.z - pl.position.z, L = Math.hypot(dx, dz) || 1; const c = this.world.collide(hit.pos.x + dx / L * k, hit.pos.z + dz / L * k, 0, 0.55, 2); hit.pos.x = c.x; hit.pos.z = c.z; hit.cool = Math.max(hit.cool, 0.8); }
+      }, 120);
+    }
+  }
+
+  _throw() {
+    const w = this.weapon;
+    if (!w.throwGrenade()) return;
+    this.audio.throwG();
+    setTimeout(() => {
+      if (this.mode !== 'play') return;
+      const cam = this.camera;
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+      const p = cam.position.clone().addScaledVector(fwd, 0.6).add(new THREE.Vector3(0, -0.15, 0));
+      const v = fwd.clone().multiplyScalar(17).add(new THREE.Vector3(0, 4.2, 0)).add(new THREE.Vector3(this.player.vel.x, 0, this.player.vel.z));
+      const m = instance('grenade', null, () => this._nadeMat || (this._nadeMat = pbr('enemy', { color: 0x4c5a3a })), { shadow: true });
+      m.position.copy(p); this.scene.add(m);
+      this.nades.push({ m, v, t: 0, spin: new THREE.Vector3(Math.random() * 12, Math.random() * 12, 0), bounces: 0 });
+      this.stats.grenades = (this.stats.grenades || 0) + 1;
+    }, 260);
+  }
+  _nades(dt) {
+    for (let i = this.nades.length - 1; i >= 0; i--) {
+      const n = this.nades[i]; n.t += dt;
+      n.v.y -= 16 * dt;
+      const step = n.v.clone().multiplyScalar(dt); const L = step.length();
+      if (L > 1e-5) {
+        const dir = step.clone().divideScalar(L);
+        const h = this.world.raycast(n.m.position, dir, L + 0.08);
+        if (h.hit && h.t <= L + 0.08) {
+          const nn = new THREE.Vector3(...h.normal);
+          n.m.position.addScaledVector(dir, Math.max(0, h.t - 0.08));
+          n.v.reflect(nn).multiplyScalar(0.42);
+          if (nn.y > 0.5 && Math.abs(n.v.y) < 1.2) { n.v.y = 0; }
+          if (n.bounces++ < 6 && L > 0.02) this.audio.bounce(n.m.position);
+        } else n.m.position.add(step);
+      }
+      const floor = this.world.groundHeight(n.m.position.x, n.m.position.z, n.m.position.y, 0.05);
+      if (n.m.position.y < floor + 0.05) { n.m.position.y = floor + 0.05; if (n.v.y < 0) n.v.y *= -0.35; n.v.x *= 0.7; n.v.z *= 0.7; }
+      n.m.rotation.x += n.spin.x * dt * Math.min(1, n.v.length() / 3); n.m.rotation.y += n.spin.y * dt * Math.min(1, n.v.length() / 3);
+      if (n.t >= GRENADE.fuse) { this._explode(n.m.position.clone()); this.scene.remove(n.m); this.nades.splice(i, 1); }
+    }
+  }
+  _explode(p) {
+    this.fx.explosion(p.clone().add(new THREE.Vector3(0, 0.3, 0)), 1);
+    this.fx.debrisBurst(p.clone().add(new THREE.Vector3(0, 0.2, 0)), [this.world.mat.concrete, this.world.mat.dark], 8, 8);
+    this.audio.explode(p, 1.3);
+    this.stats.explosions = (this.stats.explosions || 0) + 1;
+    const c = p.clone().add(new THREE.Vector3(0, 0.5, 0));
+    for (const e of this.enemies.list) {
+      if (!e.alive) continue;
+      const ep = e.pos.clone(); ep.y += e.type === 'warden' ? 1.6 : e.type === 'gull' ? 0 : 0.7;
+      const d = ep.distanceTo(c); if (d > GRENADE.radius) continue;
+      if (!this.world.los(c, ep)) continue;
+      const k = Math.pow(1 - d / GRENADE.radius, 0.7);
+      this.stats.nadeHits = (this.stats.nadeHits || 0) + 1;
+      this.enemies.damage(e, GRENADE.dmg * k, false, ep);
+    }
+    const pl = this.player; const pe = new THREE.Vector3(pl.position.x, pl.position.y + 1, pl.position.z);
+    const dp = pe.distanceTo(c);
+    if (dp < GRENADE.radius && this.world.los(c, pe)) pl.hurt(70 * Math.pow(1 - dp / GRENADE.radius, 1.2), p);
+    this.shake = Math.min(1.4, this.shake + Math.max(0, 1.2 - dp / 25));
   }
 
   _director(dt) {
@@ -364,7 +501,7 @@ export class Game {
     this.fx.spark(new THREE.Vector3(r.x, 1.6, r.z - 0.6), 40, [1, 0.75, 0.35], 6, 0.9, 0.08);
     this.fx.light(new THREE.Vector3(r.x, 2, r.z - 1), 0x9ad0ff, 40, 0.4, 14);
     this.cut++; this.phase = Math.min(3, this.cut);
-    this.weapon.reserve = Math.min(240, this.weapon.reserve + 60);
+    this.weapon.addReserveAll(60, 12);
     this.say(RADIO['cut' + this.cut]);
     this._reinforce();
     this._objective();
@@ -377,12 +514,14 @@ export class Game {
     const hp = Math.ceil(pl.hp);
     $('hpNum').textContent = hp; const f = $('hpFill'); f.style.width = pl.hp + '%'; f.classList.toggle('low', pl.hp < 35);
     $('regenTip').classList.toggle('hidden', !(this.inCover && pl.sinceHurt > 4 && pl.hp < 100));
+    if (this._hudWeap !== w.cur) this._weapHud();
     $('ammoNum').textContent = w.ammo; $('reserveNum').textContent = w.reserve;
-    $('ammoNum').classList.toggle('low', w.ammo <= 6);
+    $('gren').textContent = '手雷 ×' + w.grenades;
+    $('ammoNum').classList.toggle('low', w.ammo <= Math.ceil(w.def.mag / 5));
     const ticks = $('magTicks').children; for (let i = 0; i < ticks.length; i++) ticks[i].classList.toggle('off', i >= w.ammo);
     $('reloadTip').classList.toggle('hidden', !(w.reloading > 0));
-    if (w.reloading > 0) $('reloadTip').textContent = '换弹中 ' + Math.round(w.reloadProgress() * 100) + '%';
-    $('lowTip').classList.toggle('hidden', !(w.reloading <= 0 && w.ammo <= 6 && w.reserve > 0));
+    if (w.reloading > 0) $('reloadTip').textContent = (w.def.perShell ? '装填中 ' : '换弹中 ') + Math.round(w.reloadProgress() * 100) + '%';
+    $('lowTip').classList.toggle('hidden', !(w.reloading <= 0 && w.ammo <= Math.ceil(w.def.mag / 5) && w.reserve > 0));
     $('cross').style.opacity = w.ads > 0.5 ? 0 : 1;
     const sp = w.spread(Math.min(1, pl.speed / 5), pl.crouch) * 900;
     for (const [c, x, y] of [['t', 0, -1], ['b', 0, 1], ['l', -1, 0], ['r', 1, 0]]) $('cross').querySelector('.' + c).style.transform = `translate(${x * (6 + sp)}px,${y * (6 + sp)}px)`;
@@ -414,10 +553,12 @@ export class Game {
   }
 
   _frame() {
-    const dt = Math.min(0.05, this.clock.getDelta());
+    const rawDt = this.clock.getDelta();
+    const dt = Math.min(0.05, rawDt);
     this.time += dt;
-    this.fpsAcc += dt; this.fpsN++;
-    if (this.fpsAcc > 0.5) { $('fps').textContent = Math.round(this.fpsN / this.fpsAcc); this.fpsAcc = 0; this.fpsN = 0; }
+    this.fpsAcc += rawDt; this.fpsN++;
+    if (this.fpsAcc > 0.5) { this.perf.fps = Math.round(this.fpsN / this.fpsAcc); $('fps').textContent = `${this.perf.fps} FPS · ${this.perf.calls} DC · ${(this.perf.tris / 1000).toFixed(0)}k △`; this.fpsAcc = 0; this.fpsN = 0; }
+    this.renderer.info.reset();
     const playing = this.mode === 'play';
     if (playing) this._step(dt);
     else if (this.mode === 'title') this._titleCam(this.time);
@@ -430,26 +571,41 @@ export class Game {
     // 阴影相机跟随
     const cp = this.camera.position;
     this.sun.target.position.set(cp.x, 0, cp.z); this.sun.position.set(cp.x + this.sunDir.x * 150, this.sunDir.y * 150 + 20, cp.z + this.sunDir.z * 150);
-    this.camera.fov = damp(this.camera.fov, this.fov * (1 - this.weapon.ads * 0.36) + (this.player.sprint ? 4 : 0), 12, dt);
+    this.camera.fov = damp(this.camera.fov, this.fov * (1 - this.weapon.ads * 0.24) + (this.player.sprint ? 4 : 0), 12, dt);
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
     this.audio.update(dt, { mode: this.mode, enemies: this.enemies.alive(), phase: this.phase || 0, hp: this.player.hp, cam: this.camera, fwd });
-    // 渲染
+    // 渲染（先画瞄准镜内放大画面，再画主视角；镜外不做全黑遮幅）
+    if ((playing || this.mode === 'pause') && this.weapon.renderScope) this.weapon.renderScope(this.renderer, this.scene, this.camera);
     this.refl.update(this.scene, this.camera);
     if (this.post.enabled) this.post.updateSun(this.camera, this.sunDir.clone().negate());
     const gun = playing || this.mode === 'pause' ? this.weapon.scene : null;
     if (this.post.enabled) this.post.render(this.scene, this.camera, gun);
     else { this.renderer.setRenderTarget(null); this.renderer.clear(); this.renderer.render(this.scene, this.camera); if (gun) { this.renderer.clearDepth(); this.renderer.render(gun, this.camera); } }
+    this.perf.calls = this.renderer.info.render.calls; this.perf.tris = this.renderer.info.render.triangles;
   }
 
   _step(dt) {
     this.elapsed += dt;
     const pl = this.player, w = this.weapon, inp = this.input;
-    if (inp.take('KeyR') && w.startReload()) this.audio.reload(RIFLE.reload);
+    if (inp.take('KeyR') && w.startReload()) { if (!w.def.perShell) this.audio.reload(w.reloadTotal); }
+    let sw = -1;
+    if (inp.take('Digit1')) sw = 0; if (inp.take('Digit2')) sw = 1;
+    const wheel = inp.takeWheel(); if (wheel) sw = (w.cur + (wheel > 0 ? 1 : -1) + GUNS.length) % GUNS.length;
+    if (inp.take('KeyQ')) sw = (w.cur + 1) % GUNS.length;
+    if (sw >= 0 && w.switchTo(sw)) this.audio.switchW();
+    if (inp.take('KeyV')) this._melee();
+    if (inp.take('KeyG')) this._throw();
     const mv = pl.update(dt, this.inCover, w.ads);
     if (mv.foot) this.audio.foot(pl.sprint);
-    if (inp.fireHeld && !pl.sprint) this._fire();
+    const firePress = inp.takeFire();
+    if (!pl.sprint && (w.def.auto ? inp.fireHeld : firePress)) this._fire();
+    // 后坐回落 + 屏幕震动
+    if (this.recoilBack > 0) { const r = Math.min(this.recoilBack, dt * 0.35); pl.pitch -= r; this.recoilBack -= r; }
+    this.shake = Math.max(0, this.shake - dt * 2.2);
+    if (this.shake > 0.001) { const k = this.shake * this.shake * 0.035, t = this.time * 47; this.camera.rotation.x += Math.sin(t) * k; this.camera.rotation.y += Math.sin(t * 1.37 + 1) * k; this.camera.rotation.z += Math.sin(t * 0.83 + 2) * k * 0.6; }
+    this._nades(dt);
     w.update(dt, inp, { speed: pl.speed });
     this.enemies.update(dt, pl, this.time);
     this._director(dt);
@@ -465,12 +621,12 @@ export class Game {
     // 拾取
     for (let i = this.pickups.length - 1; i >= 0; i--) {
       const p = this.pickups[i]; p.t += dt; p.m.rotation.y += dt * 1.5; p.m.position.y = 0.3 + Math.sin(p.t * 3) * 0.06;
-      if (Math.hypot(p.m.position.x - pl.position.x, p.m.position.z - pl.position.z) < 1.6) { w.reserve = Math.min(240, w.reserve + 30); this.audio.pickup(); this.scene.remove(p.m); this.pickups.splice(i, 1); }
+      if (Math.hypot(p.m.position.x - pl.position.x, p.m.position.z - pl.position.z) < 1.6) { w.resupply(); this.stats.pickups = (this.stats.pickups || 0) + 1; this.audio.pickup(); this.scene.remove(p.m); this.pickups.splice(i, 1); }
       else if (p.t > 60) { this.scene.remove(p.m); this.pickups.splice(i, 1); }
     }
     // 无线电提醒
     if (pl.hp < 30 && this.time - this.lowHpTold > 25) { this.lowHpTold = this.time; this.say([RADIO.lowhp[Math.floor(Math.random() * 2)]]); }
-    if (!this.ammoTold && w.reserve + w.ammo < 40) { this.ammoTold = true; this.say(RADIO.ammo); }
+    if (!this.ammoTold && w.slots[0].reserve + w.slots[0].ammo < 40) { this.ammoTold = true; this.say(RADIO.ammo); }
     // 撤离
     if (this.cut >= 3) {
       const d = Math.hypot(BOAT.boardX - pl.position.x, BOAT.boardZ - pl.position.z);
@@ -483,6 +639,8 @@ export class Game {
 
   // —— 测试接口 ——
   debugState() {
-    return { mode: this.mode, hp: this.player.hp, ammo: this.weapon.ammo, reserve: this.weapon.reserve, cut: this.cut, phase: this.phase, enemies: this.enemies.alive(), pos: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z }, locked: this.input.locked, lockCalls: this.input.lockCalls, stats: { ...this.stats }, result: this.lastResult || null, quality: this.quality };
+    const w = this.weapon;
+    return { weapon: w.def.id, slots: w.slots.map((x) => ({ ...x })), grenades: w.grenades, switching: w.switchT > 0, nades: this.nades.length, perf: { ...this.perf, geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures }, nav: { ...this.enemies.navStats, lastMs: this.nav.lastMs }, shake: this.shake,
+      mode: this.mode, hp: this.player.hp, ammo: this.weapon.ammo, reserve: this.weapon.reserve, cut: this.cut, phase: this.phase, enemies: this.enemies.alive(), pos: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z }, locked: this.input.locked, lockCalls: this.input.lockCalls, stats: { ...this.stats }, result: this.lastResult || null, quality: this.quality };
   }
 }
