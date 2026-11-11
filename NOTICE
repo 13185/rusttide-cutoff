@@ -1,0 +1,16 @@
+锈潮断链 · Rusttide Cutoff
+作者：Jack
+© Jack 版权所有。禁止任何形式转载、搬运、二次分发或改名发布。
+
+原创声明
+- 本作玩法结构（切断三处中继、每次切断后敌人升级、全部切断后登船撤离、结算评级）受
+  Felix Rieseberg 的浏览器 FPS《Saltline》启发。
+- 本作所有源代码、着色器、程序化模型、canvas 贴图、Web Audio 合成音效、界面与文字均由作者独立编写，
+  未复制《Saltline》或其任何改名/汉化副本的源码、着色器、内嵌资源、文案或标记。
+- 游戏名称、角色代号（潮汐七号 / 潮汐台）、地名（锈潮港 · 七号泊位）、武器名（潮汐-7）均为原创。
+
+第三方组件
+- three.js r170 — MIT License — Copyright © 2010-2024 three.js authors（vendor/three/three.module.js）
+
+音效
+- 全部为浏览器内 Web Audio API 实时程序化合成，无任何录音采样或第三方音频素材。

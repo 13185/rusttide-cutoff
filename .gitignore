@@ -1,0 +1,5 @@
+node_modules
+ref/
+.DS_Store
+test-results/
+*.blend1

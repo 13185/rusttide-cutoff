@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>锈潮断链 · Rusttide Cutoff — 作者：Jack</title>
+<meta name="author" content="Jack">
+<meta name="description" content="锈潮断链：黎明雨中的集装箱港区，单人突击，切断三处中继后登艇撤离。作者：Jack · 禁止转载。">
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="view" tabindex="0"></canvas>
+
+  <div id="boot"><div class="boot-mark">锈潮<span>断链</span></div><div class="boot-bar"><i id="bootFill"></i></div><div id="bootText">正在启动渲染器</div></div>
+
+  <div id="hud" class="hidden">
+    <div id="compass"><div id="compassStrip"></div><div class="compass-tick"></div><div id="compassMarks"></div></div>
+    <div id="objective">
+      <div class="lbl">任务目标</div>
+      <div id="objTitle">切断三处中继</div>
+      <div class="obj-row"><span class="lbl2">中继</span><span id="relayBoxes"><i></i><i></i><i></i></span><span id="relayCount">0/3</span></div>
+    </div>
+    <div id="caption" class="hidden"><div class="cap-main">锈潮港 · 七号泊位 · <span id="capClock">05:18</span></div><div class="cap-sub">潮汐行动组 · 单兵渗透 · 无支援</div></div>
+    <div id="health"><div class="lbl">生命体征</div><div class="hp-row"><div class="hp-bar"><i id="hpFill"></i></div><b id="hpNum">100</b></div><div id="regenTip" class="hidden">掩体内 · 加速恢复</div></div>
+    <div id="ammo"><div class="ammo-row"><b id="ammoNum">30</b><span class="slash">/</span><span id="reserveNum">150</span></div><div class="mag-ticks" id="magTicks"></div><div id="weapName">潮汐-7 突击步枪</div><div id="reloadTip" class="hidden">换弹中</div><div id="lowTip" class="hidden">按 R 换弹</div></div>
+    <div id="cross"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+    <div id="hitmark"><i></i><i></i><i></i><i></i></div>
+    <div id="interact" class="hidden"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" class="bg"/><circle cx="22" cy="22" r="19" id="intRing" class="fg"/></svg><div><span class="key">E</span> <span id="intText">按住 · 切断中继</span></div></div>
+    <div id="radio" class="hidden"><div class="radio-who">指挥中心 · 潮汐台</div><div id="radioText"></div></div>
+    <div id="hurtVig"></div>
+    <div id="hurtDir"></div>
+    <div id="lockTip" class="hidden">点击画面以捕获鼠标</div>
+    <div id="stats">FPS <span id="fps">--</span></div>
+  </div>
+
+  <div id="title" class="menu">
+    <div class="menu-inner">
+      <div class="badge-row"><span class="badge">T7</span><b>潮汐行动组</b><span class="dim">锈潮港 · 05:18</span></div>
+      <h1 class="title-big">锈潮</h1>
+      <div class="title-sub">断链</div>
+      <div class="rule"></div>
+      <p class="pitch">港区自动化系统被入侵，机械巡检单元全面失控。切断三处上行中继，杀出堆场，登上撤离艇。</p>
+      <div class="btns"><button id="btnStart" class="btn primary">开始行动</button><button class="btn" data-open="settings">设置</button><button class="btn" data-open="help">操作说明</button><button class="btn" data-open="about">关于</button></div>
+      <p class="credit">作者：Jack · © Jack 版权所有 · 禁止任何形式转载 · 玩法受《Saltline》（Felix Rieseberg）启发，代码与素材均为原创</p>
+    </div>
+    <div class="keys">
+      <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</div><div><kbd>鼠标</kbd> 视角</div><div><kbd>左键</kbd> 开火</div><div><kbd>右键</kbd> 按住瞄准</div><div><kbd>R</kbd> 换弹</div>
+      <div><kbd>E</kbd> 切断中继</div><div><kbd>SPACE</kbd> 跳跃</div><div><kbd>SHIFT</kbd> 冲刺</div><div><kbd>C</kbd>/<kbd>CTRL</kbd> 蹲伏</div><div><kbd>ESC</kbd> 暂停</div>
+    </div>
+  </div>
+
+  <div id="pause" class="menu hidden"><div class="menu-inner narrow">
+    <div class="lbl">行动暂停</div><h2>已暂停</h2><p class="dim">继续后将重新捕获鼠标。</p>
+    <div class="btns col"><button id="btnResume" class="btn primary">继续行动</button><button class="btn" data-open="settings">设置</button><button class="btn" data-open="help">操作说明</button><button id="btnRestart" class="btn">重新开始任务</button><button id="btnQuit" class="btn">返回标题</button></div>
+  </div></div>
+
+  <div id="dead" class="menu hidden"><div class="menu-inner narrow">
+    <div class="lbl alarm">信号中断</div><h2>突击队员倒下</h2><p class="dim" id="deadInfo"></p>
+    <div class="btns col"><button id="btnRetry" class="btn primary">再次出击</button><button class="btn" id="btnDeadQuit">返回标题</button></div>
+  </div></div>
+
+  <div id="result" class="menu hidden"><div class="menu-inner narrow">
+    <div class="lbl">撤离成功 · 行动报告</div><h2 id="resRank">A</h2><p id="resWord" class="dim"></p>
+    <table id="resTable"></table>
+    <div class="btns col"><button id="btnAgain" class="btn primary">再次出击</button><button class="btn" id="btnResQuit">返回标题</button></div>
+  </div></div>
+
+  <div id="panel" class="hidden"><div class="panel-box">
+    <div id="panelBody"></div>
+    <div class="btns"><button id="btnPanelClose" class="btn primary">关闭</button></div>
+  </div></div>
+
+  <template id="tpl-settings">
+    <h3>设置</h3>
+    <div class="set-row"><span>画面质量</span><div class="seg" id="qualSeg"><button data-q="low">低</button><button data-q="medium">中</button><button data-q="high">高</button><button data-q="ultra">极高</button></div></div>
+    <div class="set-row"><span>鼠标灵敏度</span><input type="range" id="sens" min="0.4" max="2.5" step="0.05" value="1"></div>
+    <div class="set-row"><span>视野范围</span><input type="range" id="fov" min="60" max="95" step="1" value="74"></div>
+    <div class="set-row"><span>总音量</span><input type="range" id="volMaster" min="0" max="100" value="75"></div>
+    <div class="set-row"><span>环境 / 音乐</span><input type="range" id="volMusic" min="0" max="100" value="55"></div>
+    <div class="set-row"><span>音效</span><input type="range" id="volSfx" min="0" max="100" value="85"></div>
+    <div class="set-row"><span>静音</span><input type="checkbox" id="mute"></div>
+    <p class="dim small">画质立即生效；低画质关闭反射、阴影、后期。</p>
+  </template>
+  <template id="tpl-help">
+    <h3>操作说明</h3>
+    <p>WASD 移动 · 鼠标视角 · 左键开火 · <b>按住右键瞄准</b> · R 换弹 · E 按住切断中继 · 空格跳跃 · Shift 冲刺 · C / Ctrl 蹲伏 · Esc 暂停。</p>
+    <p>任务：依次切断甲、乙、丙三处上行中继（顶部罗盘标记），每切断一处，港区会加派更强的机械单元。全部切断后前往码头撤离艇登船。</p>
+    <p>弱点：机械猎犬头部传感器、机械飞鸥腹部光核、机械守卫背部散热核心与面罩，命中伤害大幅提升（命中标记变为琥珀色）。</p>
+    <p>生命：脱离交火 4 秒后自动恢复，躲在掩体后（敌人无视线）恢复更快。击毁机械可能掉落弹药箱。</p>
+  </template>
+  <template id="tpl-about">
+    <h3>关于《锈潮断链》</h3>
+    <p>作者：Jack · © Jack 版权所有 · 禁止任何形式转载。</p>
+    <p>玩法结构受 Felix Rieseberg 的浏览器 FPS《Saltline》启发（切断中继 → 敌人升级 → 登船撤离）。本作所有代码、模型、贴图、音效与文字均为独立原创实现：Three.js 程序化建模，Web Audio 实时合成。</p>
+  </template>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
