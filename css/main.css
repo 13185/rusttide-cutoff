@@ -87,3 +87,95 @@ h2 { font-size:34px; margin:8px 0 6px; } h3 { margin:0 0 14px; font-size:20px; c
 #hurtDir { position:absolute; left:50%; top:50%; width:240px; height:240px; margin:-120px; border-radius:50%; border-top:6px solid rgba(255,80,56,.9); opacity:0; filter:drop-shadow(0 0 6px rgba(255,60,40,.8)); -webkit-mask:conic-gradient(from -35deg, #000 0 70deg, transparent 70deg); mask:conic-gradient(from -35deg, #000 0 70deg, transparent 70deg); }
 #lockTip { position:absolute; left:50%; top:42%; transform:translateX(-50%); background:var(--plate); padding:8px 16px; font-size:14px; border:1px solid var(--faint); }
 #stats { position:absolute; right:12px; top:10px; font-size:10px; color:var(--faint); }
+
+/* —— 触屏（作者：Jack）仅在 body.touch（真实触摸后）生效；电脑端不受影响 —— */
+:root { --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px); --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px); }
+.touch-only, .tkeys { display:none !important; }
+body.touch .touch-only { display:inline-block !important; } body.touch span.touch-only { display:inline !important; }
+body.touch .desk-only, body.touch .keys, body.touch .desk-row { display:none !important; }
+body.touch .tkeys { display:grid !important; }
+.tkeys { position:absolute; right:calc(3vw + var(--sr)); bottom:calc(5vh + var(--sb)); grid-template-columns:auto auto; gap:6px 18px; font-size:13px; color:var(--bone); text-shadow:var(--sh); border-top:1px solid var(--faint); padding-top:10px; max-width:52vw; }
+.tkeys .dim { grid-column:1 / -1; font-size:12px; }
+body.touch, body.touch * { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+body.touch #view, #touch, #touch * { touch-action:none; }
+body.touch .btn, body.touch .seg button { touch-action:manipulation; }
+body.touch .panel-box { max-height:calc(100vh - 24px); overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y; }
+body.touch #interact, body.touch #lockTip, body.touch #lowTip { display:none !important; }
+
+#touch { position:absolute; inset:0; z-index:25; --s:1; --o:.55; }
+#touch .tb { position:absolute; width:calc(54px * var(--s)); height:calc(54px * var(--s)); border-radius:50%; border:1.5px solid rgba(232,228,218,.55); background:rgba(11,13,15,.38); color:var(--bone); font:700 calc(13px * var(--s)) var(--f); letter-spacing:.06em; opacity:var(--o); padding:0; display:flex; align-items:center; justify-content:center; text-shadow:var(--sh); }
+#touch .tb.down { background:rgba(255,179,71,.42); border-color:var(--amber); opacity:calc(var(--o) + .3); }
+#touch .tb.on { border-color:var(--amber); color:var(--amber-hot); box-shadow:0 0 0 2px rgba(255,179,71,.25) inset; }
+#tPause { left:calc(12px + var(--sl)); top:calc(10px + var(--st)); width:calc(40px * var(--s)) !important; height:calc(40px * var(--s)) !important; border-radius:6px !important; font-size:calc(12px * var(--s)) !important; }
+/* 二指默认布局 */
+#tFire { right:calc(26px + var(--sr)); bottom:calc(26px + var(--sb)); width:calc(88px * var(--s)) !important; height:calc(88px * var(--s)) !important; font-size:calc(15px * var(--s)) !important; border-width:2px !important; }
+#tAds { right:calc(26px + 104px * var(--s) + var(--sr)); bottom:calc(26px + 70px * var(--s) + var(--sb)); width:calc(60px * var(--s)) !important; height:calc(60px * var(--s)) !important; }
+#tReload { right:calc(34px + var(--sr)); bottom:calc(26px + 104px * var(--s) + var(--sb)); }
+#tJump { right:calc(26px + 108px * var(--s) + var(--sr)); bottom:calc(16px + var(--sb)); width:calc(46px * var(--s)) !important; height:calc(46px * var(--s)) !important; }
+#tNade { right:calc(26px + 176px * var(--s) + var(--sr)); bottom:calc(20px + var(--sb)); width:calc(42px * var(--s)) !important; height:calc(42px * var(--s)) !important; }
+#tSwap { right:calc(26px + 110px * var(--s) + var(--sr)); bottom:calc(26px + 142px * var(--s) + var(--sb)); width:calc(48px * var(--s)) !important; height:calc(48px * var(--s)) !important; border-radius:10px !important; }
+#tCrouch { left:calc(24px + var(--sl)); bottom:calc(50vh + var(--sb)); }
+#tFlash { left:calc(24px + 74px * var(--s) + var(--sl)); bottom:calc(62vh + var(--sb)); }
+#tFireL { display:none !important; }
+/* 三指：左上大开火给左手食指，右侧开火缩小，瞄准移到右上 */
+#touch[data-preset=three] #tFireL { display:flex !important; left:calc(24px + 150px * var(--s) + var(--sl)); top:calc(62px + var(--st)); width:calc(76px * var(--s)); height:calc(76px * var(--s)); font-size:calc(14px * var(--s)); border-width:2px; }
+#touch[data-preset=three] #tFire { width:calc(66px * var(--s)) !important; height:calc(66px * var(--s)) !important; }
+#touch[data-preset=three] #tAds { right:calc(30px + var(--sr)); bottom:auto; top:calc(78px + var(--st)); width:calc(56px * var(--s)) !important; height:calc(56px * var(--s)) !important; }
+#touch[data-preset=three] #tSwap { right:calc(26px + 92px * var(--s) + var(--sr)); bottom:calc(26px + 120px * var(--s) + var(--sb)); }
+#touch[data-preset=three] #tReload { bottom:calc(26px + 84px * var(--s) + var(--sb)); }
+#touch[data-preset=three] #tJump { right:calc(26px + 84px * var(--s) + var(--sr)); }
+#touch[data-preset=three] #tNade { right:calc(26px + 144px * var(--s) + var(--sr)); }
+/* 摇杆 */
+#tStick { position:absolute; left:0; top:0; border-radius:50%; border:1.5px solid rgba(232,228,218,.35); background:radial-gradient(circle, rgba(11,13,15,.05) 0 55%, rgba(11,13,15,.28) 80%); opacity:calc(var(--o) * .55); pointer-events:none; transition:opacity .15s, border-color .15s; }
+#tStick::after { content:''; position:absolute; inset:10%; border-radius:50%; border:1px dashed rgba(255,179,71,.0); }
+#tStick.on { opacity:var(--o); }
+#tStick.sprint { border-color:var(--amber); } #tStick.sprint::after { border-color:rgba(255,179,71,.6); }
+#tKnob { position:absolute; left:50%; top:50%; width:42%; height:42%; border-radius:50%; background:rgba(232,228,218,.55); box-shadow:0 0 6px rgba(0,0,0,.6); }
+#tSprint { position:absolute; left:50%; top:-22px; transform:translateX(-50%); font-size:12px; color:var(--amber); letter-spacing:.2em; opacity:0; text-shadow:var(--sh); white-space:nowrap; }
+#tStick.sprint #tSprint { opacity:1; }
+/* 情境按钮：屏幕下方中间，按住切断 */
+#tCtx { position:absolute; left:50%; bottom:calc(18px + var(--sb)); transform:translateX(-50%); display:flex; align-items:center; gap:8px; padding:6px 16px 6px 6px; font:700 15px var(--f); color:var(--bone); background:rgba(11,13,15,.62); border:1.5px solid var(--amber); border-radius:30px; text-shadow:var(--sh); }
+#tCtx.down { background:rgba(255,179,71,.28); }
+#tCtx svg { width:44px; height:44px; transform:rotate(-90deg); } #tCtx .bg { fill:none; stroke:var(--faint); stroke-width:3; } #tCtx .fg { fill:none; stroke:var(--amber); stroke-width:3.5; stroke-dasharray:119.4; stroke-dashoffset:119.4; }
+#tHint { position:absolute; left:50%; top:38%; transform:translateX(-50%); background:var(--plate); border:1px solid var(--faint); padding:8px 16px; font-size:14px; pointer-events:none; white-space:nowrap; }
+/* 触屏 HUD 重排：避开拇指区，字号略大 */
+body.touch #objective { top:calc(10px + var(--st)); left:calc(64px + var(--sl)); min-width:0; }
+body.touch #objTitle { font-size:16px; margin:2px 0 4px; }
+body.touch #compass { top:calc(6px + var(--st)); width:min(420px,42vw); }
+body.touch #health { left:50%; bottom:auto; top:calc(50px + var(--st)); width:200px; transform:translateX(-50%); }
+body.touch #health .lbl { display:none; } body.touch #hpNum { font-size:18px; }
+body.touch #ammo { right:calc(16px + var(--sr)); bottom:auto; top:calc(8px + var(--st)); }
+body.touch #ammoNum { font-size:36px; } body.touch .mag-ticks { display:none; }
+body.touch #weapName, body.touch #gren, body.touch #reloadTip { font-size:12px; }
+body.touch #radio { bottom:auto; top:calc(82px + var(--st)); width:min(460px,46vw); }
+body.touch #radioText { font-size:14px; }
+body.touch #caption { bottom:auto; top:38%; }
+body.touch #stats { display:none !important; }
+/* 竖屏提示：触屏模式或纯触屏设备的竖屏才显示（只是界面，不影响指针锁定） */
+#rotate, #glLost { display:none; position:fixed; inset:0; z-index:80; background:rgba(8,9,11,.96); flex-direction:column; align-items:center; justify-content:center; gap:12px; text-align:center; color:var(--bone); font-size:14px; }
+#rotate b, #glLost b { font-size:24px; color:var(--amber); letter-spacing:.2em; }
+#glLost:not(.hidden) { display:flex; }
+.rot-icon { width:46px; height:76px; border:3px solid var(--bone); border-radius:8px; animation:rotHint 2.4s ease-in-out infinite; }
+@keyframes rotHint { 0%,30%{transform:rotate(0)} 60%,100%{transform:rotate(-90deg)} }
+@media (orientation: portrait) { body.touch #rotate { display:flex; } }
+@media (orientation: portrait) and (hover: none) and (pointer: coarse) { #rotate { display:flex; } }
+/* 矮屏（手机横屏）压缩标题与菜单 */
+@media (max-height: 520px) {
+  .menu-inner { padding-left:calc(5vw + var(--sl)); }
+  .badge-row { font-size:12px; }
+  .title-big { font-size:clamp(40px,8vw,64px); margin-top:8px; }
+  .title-sub { font-size:clamp(20px,3.4vw,28px); margin-top:4px; }
+  .rule { margin:12px 0 10px; }
+  .pitch { font-size:14px; max-width:46vw; margin:6px 0; }
+  .btns { margin-top:12px; gap:8px; } .btn { padding:9px 14px; font-size:14px; }
+  .credit { font-size:10px; margin-top:10px; max-width:46vw; line-height:1.4; }
+  .menu-inner.narrow { padding:18px 24px; }
+  .menu-inner.narrow h2 { font-size:26px; }
+  .btns.col { flex-direction:row; flex-wrap:wrap; }
+  .panel-box { padding:16px 20px; font-size:13px; }
+  .set-row { margin:6px 0; } .set-row input[type=range] { width:160px; }
+  .keys { grid-template-columns:repeat(3,auto); font-size:11px; gap:5px 10px; }
+  .tkeys { font-size:12px; gap:4px 12px; bottom:calc(3vh + var(--sb)); max-width:40vw; grid-template-columns:auto; }
+}
+
+#touchSet { border-top:1px solid var(--faint); margin-top:10px; padding-top:10px; } #touchSet h3 { font-size:16px; margin-bottom:6px; }

@@ -32,15 +32,17 @@ export class Player {
     this.yaw -= look.x * sens; this.pitch -= look.y * sens;
     this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch));
     const k = this.input.keys;
-    this.crouch = !!(k.ControlLeft || k.ControlRight || k.KeyC);
+    const t = this.input.touch;
+    this.crouch = !!(k.ControlLeft || k.ControlRight || k.KeyC || t.crouch);
     const ax = this.input.axis();
-    this.sprint = !!(k.ShiftLeft || k.ShiftRight) && ax.z < 0 && !this.crouch && ads < 0.3;
+    this.sprint = !!(k.ShiftLeft || k.ShiftRight || t.sprint) && ax.z < 0 && !this.crouch && ads < 0.3;
     const sp = this.crouch ? 2.4 : this.sprint ? 7.6 : ads > 0.5 ? 3.2 : 5.0;
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const wx = ax.x * cy + ax.z * sy, wz = -ax.x * sy + ax.z * cy;
     const accel = this.grounded ? 11 : 3;
     this.vel.x = damp(this.vel.x, wx * sp, accel, dt); this.vel.z = damp(this.vel.z, wz * sp, accel, dt);
-    if (this.grounded && k.Space) { this.vel.y = 5.6; this.grounded = false; }
+    const jump = k.Space || t.jump; t.jump = false;
+    if (this.grounded && jump) { this.vel.y = 5.6; this.grounded = false; }
     this.vel.y -= 18 * dt;
     let ny = this.position.y + this.vel.y * dt;
     const c = this.world.collide(this.position.x + this.vel.x * dt, this.position.z + this.vel.z * dt, this.position.y, this.radius, this.crouch ? 1.2 : 1.8);

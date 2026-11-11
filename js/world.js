@@ -417,14 +417,14 @@ export class World {
   }
   applyLightBudget(q) {
     // 场景有效动态灯 ≤ 8（另加手电 1）。低画质再收一档。
-    const nStreet = q === 'low' ? 2 : q === 'medium' ? 3 : 4;
+    const nStreet = q === 'low' || q === 'mobile' ? 2 : q === 'medium' ? 3 : 4;
     if (this.streetLamps) {
       this.streetLamps.forEach((s, i) => {
         s.lit = i < nStreet;
         if (s.light) s.light.intensity = (s.on && s.lit) ? s.baseIntensity : 0;
       });
     }
-    if (this.doorSpot) this.doorSpot.intensity = q === 'low' ? 18 : 28;
+    if (this.doorSpot) this.doorSpot.intensity = q === 'low' || q === 'mobile' ? 18 : 28;
     if (this.relays) for (const r of this.relays) {
       if (!r.light) continue;
       const on = q !== 'low';

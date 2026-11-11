@@ -444,7 +444,7 @@ export class Weapon {
   _setupScope(view, dot) {
     if (!dot) return;
     if (!this.scopeRT) {
-      this.scopeRT = new THREE.WebGLRenderTarget(640, 640, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, type: THREE.HalfFloatType });
+      this.scopeRT = new THREE.WebGLRenderTarget(this.scopeRes || 640, this.scopeRes || 640, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, type: THREE.HalfFloatType });
       this.scopeCam = new THREE.PerspectiveCamera(52, 1, 0.25, 1200);
     }
     const VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
@@ -492,6 +492,7 @@ export class Weapon {
     view.scopeDisc = disc; view.scopeFade = unis.uFade;
   }
 
+  setScopeRes(n) { this.scopeRes = n; if (this.scopeRT) this.scopeRT.setSize(n, n); }
   renderScope(renderer, worldScene, camera) {
     const v = this.views && this.views[this.cur];
     if (!v || !this.scopeRT) return;

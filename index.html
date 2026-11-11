@@ -3,7 +3,10 @@
 <head>
 <link rel="icon" href="data:,">
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
 <title>锈潮断链：午夜禁区 · Rusttide Cutoff — 作者：Jack</title>
 <meta name="author" content="Jack">
 <meta name="description" content="锈潮断链：午夜禁区。乍浦港区失联，最后一名调查人员关闭三座异常中继。作者：Jack · 禁止转载。">
@@ -50,11 +53,17 @@
       <div><kbd>Q</kbd> 切枪<span class="dim">（1 / 2 / 滚轮亦可）</span></div><div><kbd>F</kbd> 手电筒</div><div><kbd>G</kbd> 手雷</div><div><kbd>V</kbd> 近战</div>
       <div><kbd>E</kbd> 关闭中继</div><div><kbd>SPACE</kbd> 跳跃</div><div><kbd>SHIFT</kbd> 冲刺</div><div><kbd>C</kbd>/<kbd>CTRL</kbd> 蹲伏</div><div><kbd>ESC</kbd> 暂停</div>
     </div>
+    <div class="tkeys">
+      <div><kbd>左下</kbd> 按住拖动走路，推到底向前＝冲刺</div><div><kbd>右半屏</kbd> 划动转视角</div>
+      <div><kbd>开火</kbd> 按住射击，按着也能拖动瞄准</div><div><kbd>瞄准</kbd> 点按开镜（设置可改长按）</div>
+      <div><kbd>手电</kbd> 点按开关</div><div><kbd>靠近中继</kbd> 屏幕下方按住切断</div>
+      <div class="dim">横屏游玩 · 建议戴耳机 · 设置里可换「三指」布局、调灵敏度与陀螺仪</div>
+    </div>
   </div>
 
   <div id="pause" class="menu hidden"><div class="menu-inner narrow">
-    <div class="lbl">调查暂停</div><h2>已暂停</h2><p class="dim">继续后将重新捕获鼠标。</p>
-    <div class="btns col"><button id="btnResume" class="btn primary">继续调查</button><button class="btn" data-open="settings">设置</button><button class="btn" data-open="help">操作说明</button><button id="btnRestart" class="btn">重新开始任务</button><button id="btnQuit" class="btn">返回标题</button></div>
+    <div class="lbl">调查暂停</div><h2>已暂停</h2><p class="dim"><span class="desk-only">继续后将重新捕获鼠标。</span><span class="touch-only">点「继续调查」回到游戏。</span></p>
+    <div class="btns col"><button id="btnResume" class="btn primary">继续调查</button><button class="btn" data-open="settings">设置</button><button class="btn" data-open="help">操作说明</button><button id="btnRestart" class="btn">重新开始任务</button><button id="btnQuit" class="btn">返回标题</button><button class="btn touch-only" data-fs>全屏</button></div>
   </div></div>
 
   <div id="dead" class="menu hidden"><div class="menu-inner narrow">
@@ -68,6 +77,9 @@
     <div class="btns col"><button id="btnAgain" class="btn primary">再次调查</button><button class="btn" id="btnResQuit">返回标题</button></div>
   </div></div>
 
+  <div id="rotate"><div class="rot-icon"></div><b>请横屏游玩</b><span>把手机转成横向；点这里尝试全屏</span></div>
+  <div id="glLost" class="hidden"><b>画面中断</b><span>手机图形资源被系统回收，点这里重新载入</span></div>
+
   <div id="panel" class="hidden"><div class="panel-box">
     <div id="panelBody"></div>
     <div class="btns"><button id="btnPanelClose" class="btn primary">关闭</button></div>
@@ -75,18 +87,32 @@
 
   <template id="tpl-settings">
     <h3>设置</h3>
-    <div class="set-row"><span>画面质量</span><div class="seg" id="qualSeg"><button data-q="low">低</button><button data-q="medium">中</button><button data-q="high">高</button><button data-q="ultra">极高</button></div></div>
-    <div class="set-row"><span>鼠标灵敏度</span><input type="range" id="sens" min="0.4" max="2.5" step="0.05" value="1"></div>
+    <div class="set-row"><span>画面质量</span><div class="seg" id="qualSeg"><button data-q="low">低</button><button data-q="medium">中</button><button data-q="high">高</button><button data-q="ultra">极高</button><button data-q="mobile">手机</button></div></div>
+    <div id="touchSet" class="hidden">
+      <h3>触屏操作</h3>
+      <div class="set-row"><span>按键布局</span><div class="seg" id="tsPreset"><button data-v="two">二指</button><button data-v="three">三指（左开火）</button></div></div>
+      <div class="set-row"><span>按钮大小</span><input type="range" id="tsSize" min="0.8" max="1.4" step="0.05"></div>
+      <div class="set-row"><span>按钮透明度</span><input type="range" id="tsOpacity" min="0.2" max="0.9" step="0.05"></div>
+      <div class="set-row"><span>瞄准键</span><div class="seg" id="tsAdsMode"><button data-v="tap">点按切换</button><button data-v="hold">长按</button></div></div>
+      <div class="set-row"><span>移动摇杆</span><div class="seg" id="tsStick"><button data-v="float">浮动</button><button data-v="fixed">固定</button></div></div>
+      <div class="set-row"><span>视角灵敏度</span><input type="range" id="tsLook" min="0.3" max="2.5" step="0.05"></div>
+      <div class="set-row"><span>开镜灵敏度</span><input type="range" id="tsAdsLook" min="0.2" max="2" step="0.05"></div>
+      <div class="set-row"><span>陀螺仪</span><div class="seg" id="tsGyro"><button data-v="off">关闭</button><button data-v="ads">仅开镜</button><button data-v="always">始终</button></div></div>
+      <div class="set-row"><span>轻度辅助瞄准</span><input type="checkbox" id="tsAssist"></div>
+      <p class="dim small">视角为固定速度、不加速。冲刺需把摇杆推过外圈约八成且朝前，脚步声更大。</p>
+    </div>
+    <div class="set-row desk-row"><span>鼠标灵敏度</span><input type="range" id="sens" min="0.4" max="2.5" step="0.05" value="1"></div>
     <div class="set-row"><span>视野范围</span><input type="range" id="fov" min="60" max="95" step="1" value="74"></div>
     <div class="set-row"><span>总音量</span><input type="range" id="volMaster" min="0" max="100" value="75"></div>
     <div class="set-row"><span>环境 / 音乐</span><input type="range" id="volMusic" min="0" max="100" value="55"></div>
     <div class="set-row"><span>音效</span><input type="range" id="volSfx" min="0" max="100" value="85"></div>
     <div class="set-row"><span>静音</span><input type="checkbox" id="mute"></div>
-    <p class="dim small">画质立即生效；低画质关闭反射、阴影、后期。</p>
+    <p class="dim small">画质立即生效；低画质关闭反射、阴影、后期。「手机」档：限分辨率并自适应、关阴影与反射、轻后期、略提亮。</p>
   </template>
   <template id="tpl-help">
     <h3>操作说明</h3>
     <p>WASD 移动 · 鼠标视角 · 左键开火 · <b>按住右键瞄准</b> · R 换弹 · <b>Q 切换步枪与霰弹枪</b>（1 / 2 或滚轮亦可） · <b>F 手电筒</b> · G 投掷手雷 · V 枪托近战 · E 按住关闭中继 · 空格跳跃 · Shift 冲刺 · C / Ctrl 蹲伏 · Esc 暂停。</p>
+    <p><b>手机 / 平板（触屏，横屏）：</b>左下按住拖动走路，推过外圈约八成并朝前才冲刺 · 右半屏划动转视角 · 右下「开火」按住射击，按着可拖动瞄准 · 「瞄准」点按开镜（设置可改长按）· 「换弹」「换枪」「跳」「雷」· 左侧「蹲」切换、「手电」点按开关 · 靠近中继时屏幕下方出现按钮，按住 3.5 秒切断 · 左上 ❚❚ 暂停。设置里可换「三指」布局（左上开火）、按钮大小与透明度、灵敏度、陀螺仪与轻度辅助瞄准。</p>
     <p>武器：潮汐-7 突击步枪（全自动、精准）；港务-12 泵动霰弹枪（9 颗弹丸、近距离毁伤极高、逐发装填可随时开火打断）；手雷（2.2 秒引信，可在墙面弹跳）。弹药箱会同时补充两把枪的备弹并补 1 枚手雷。</p>
     <p>任务：关闭甲（西堆场）、乙（东仓库）、丙（一号岸桥下）三座异常中继（顶部罗盘标记），全部关闭后前往码头撤离艇登船。本版为「午夜禁区」氛围版，常规机械敌军波次已关闭；手电能照路，关闭后仍有极弱环境光可慢走认路。</p>
     <p>生命：受伤 4 秒后自动恢复。弹药请省着使用。</p>

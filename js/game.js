@@ -6,10 +6,11 @@ import { PlanarReflection } from './reflect.js';
 import { FX, Rain } from './fx.js';
 import { Enemies } from './enemies.js';
 import { Weapon, RIFLE, SHOTGUN, GUNS, GRENADE, MELEE } from './weapon.js';
-import { loadAssets, instance, pbr } from './assets.js';
+import { loadAssets, instance, pbr, setAssetQuality } from './assets.js';
 import { NavGrid } from './nav.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
+import { TouchControls } from './touch.js';
 import { Audio } from './audio.js';
 import { PostFX } from './postfx.js';
 import { damp, fmtTime } from './util.js';
@@ -19,8 +20,12 @@ const QUAL = {
   low: { pr: 0.75, shadow: 0, refl: 0, post: false, rain: 1600, lod: 16 },
   medium: { pr: 1, shadow: 1024, refl: 0.35, post: true, rain: 3000, lod: 26 },
   high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200, lod: 36 },
-  ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 60 }
+  ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 60 },
+  // 手机：限分辨率（自适应 0.8–1.25）、无阴影无反射、轻后期（保留 ACES/雾/锐化，去 SSAO 与泛光）、少雨、近 LOD
+  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 15 }
 };
+// 仅用于「首次打开时预选手机画质与低模枪」的资源判断，绝不用来关闭指针锁定
+const MOBILE_UA = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent || '');
 const PHASES = [
   { max: 4, every: 7, mix: { hound: 1 }, wardens: 0 },
   { max: 6, every: 5.5, mix: { hound: 0.7, warden: 0.3 }, wardens: 1 },
@@ -42,8 +47,9 @@ const WAVES_ENABLED = false;
 export class Game {
   constructor(canvas) {
     this.canvas = canvas;
-    this.quality = new URLSearchParams(location.search).get('quality') || localStorage.getItem('rt.quality') || 'high';
+    this.quality = new URLSearchParams(location.search).get('quality') || localStorage.getItem('rt.quality') || (MOBILE_UA ? 'mobile' : 'high');
     if (!QUAL[this.quality]) this.quality = 'high';
+    setAssetQuality(this.quality);
     this.mode = 'boot';
     this.fov = 74;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
@@ -56,6 +62,7 @@ export class Game {
     this.sunDir = new THREE.Vector3(0.28, 0.55, -0.78).normalize();
     this.scene.fog = new THREE.FogExp2(0x1c2832, 0.0145);
     this.input = new Input(canvas);
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); const el = document.getElementById('glLost'); if (el) el.classList.remove('hidden'); this.renderer.setAnimationLoop(null); });
     this.audio = new Audio();
     this.stats = { shots: 0, hits: 0, weak: 0, kills: 0, time: 0 };
   }
@@ -152,7 +159,8 @@ export class Game {
 
   applyQuality(q) {
     this.quality = q; localStorage.setItem('rt.quality', q);
-    const c = QUAL[q];
+    const c = QUAL[q]; const mob = q === 'mobile';
+    this.mobilePR = mob ? Math.min(devicePixelRatio || 1, c.pr) : 0;
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, c.pr));
     this.renderer.shadowMap.enabled = c.shadow > 0;
     this.sun.castShadow = c.shadow > 0;
@@ -160,7 +168,13 @@ export class Game {
     this.refl.scale = c.refl || 0.25;
     this.refl.setEnabled(c.refl > 0);
     this.post.enabled = c.post;
-    this.post.applyQuality(q === 'ultra' ? 'high' : q === 'medium' ? 'medium' : q);
+    this.post.applyQuality(q === 'ultra' ? 'high' : q === 'medium' ? 'medium' : mob ? 'low' : q);
+    if (this.hemi) this.hemi.intensity = mob ? 1.12 : 0.92;
+    // 手机：夜雾在 150 米外已近全浓，远裁剪收到 170 米省掉看不见的远景；天空球随之缩小（只按方向着色）
+    this.camera.far = mob ? 170 : 1200; this.camera.updateProjectionMatrix();
+    if (this.sky) this.sky.mesh.scale.setScalar(mob ? 0.17 : 1);
+    if (this.post && this.post.uSSAO) this.post.uSSAO.cameraFar.value = this.camera.far;
+    if (this.weapon && this.weapon.setScopeRes) this.weapon.setScopeRes(mob ? 320 : 640);
     this.rain.setCount(c.rain);
     this.world.setLodDistance(c.lod); this.world.updateLOD(this.camera.position);
     this.world.applyLightBudget(q);
@@ -171,14 +185,26 @@ export class Game {
       this.post.uComp.contrast.value = 1.12;
       this.post.uComp.saturation.value = 0.86;
       this.post.uComp.vignette.value = 0.28;
-      this.post.uComp.grain.value = q === 'low' ? 0.016 : 0.034;
-      this.post.uComp.sharpen.value = q === 'low' ? 0.22 : 0.36;
-      this.post.uComp.shafts.value = q === 'low' ? 0 : 0.22;
-      this.post.uComp.exposure.value = 1.34;
+      this.post.uComp.grain.value = q === 'low' || mob ? 0.016 : 0.034;
+      this.post.uComp.sharpen.value = q === 'low' ? 0.22 : mob ? 0.32 : 0.36;
+      this.post.uComp.shafts.value = q === 'low' || mob ? 0 : 0.22;
+      // 手机小屏略提亮，夜里仍看得清路
+      this.post.uComp.exposure.value = mob ? 1.52 : 1.34;
+      this.post.uComp.vignette.value = mob ? 0.2 : 0.28;
     }
     this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; });
     this._resize();
     document.querySelectorAll('#qualSeg button').forEach((b) => b.classList.toggle('on', b.dataset.q === q));
+  }
+  // 手机档自适应分辨率：帧率低于 27 降一档，高于 45 回升（0.8–1.25）
+  _adaptPR() {
+    if (this.quality !== 'mobile' || !this.perf.fps) return;
+    const cap = Math.min(devicePixelRatio || 1, QUAL.mobile.pr);
+    let pr = this.mobilePR || cap;
+    if (this.perf.fps < 27 && pr > 0.8) pr = Math.max(0.8, pr - 0.15);
+    else if (this.perf.fps > 45 && pr < cap) pr = Math.min(cap, pr + 0.1);
+    else return;
+    this.mobilePR = pr; this.renderer.setPixelRatio(pr); this._resize();
   }
   _resize() {
     const w = innerWidth, h = innerHeight;
@@ -199,6 +225,11 @@ export class Game {
     this._weapHud();
     const unlock = () => this.audio.resume();
     addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
+    this.touch = new TouchControls(this);
+    const fs = () => this.touch.goFullscreen();
+    document.querySelectorAll('[data-fs]').forEach((b) => (b.onclick = fs));
+    const rot = $('rotate'); if (rot) rot.addEventListener('click', fs);
+    const gl = $('glLost'); if (gl) gl.addEventListener('click', () => location.reload());
     $('btnStart').onclick = () => { this.audio.ui(); this.start(); };
     $('btnResume').onclick = () => this.resume();
     $('btnRestart').onclick = () => this.start();
@@ -218,7 +249,8 @@ export class Game {
     $('panelBody').innerHTML = $('tpl-' + name).innerHTML;
     $('panel').classList.remove('hidden');
     if (name === 'settings') {
-      document.querySelectorAll('#qualSeg button').forEach((b) => { b.classList.toggle('on', b.dataset.q === this.quality); b.onclick = () => this.applyQuality(b.dataset.q); });
+      document.querySelectorAll('#qualSeg button').forEach((b) => { b.classList.toggle('on', b.dataset.q === this.quality); b.onclick = () => { localStorage.setItem('rt.qualityManual', '1'); this.applyQuality(b.dataset.q); }; });
+      if (this.touch) this.touch.bindSettings();
       const s = $('sens'); s.value = this.input.sensitivity / 0.0021; s.oninput = () => (this.input.sensitivity = 0.0021 * +s.value);
       const f = $('fov'); f.value = this.fov; f.oninput = () => (this.fov = +f.value);
       const v = this.audio.vol;
@@ -252,12 +284,16 @@ export class Game {
     $('caption').classList.remove('hidden'); $('caption').style.animation = 'none'; void $('caption').offsetWidth; $('caption').style.animation = '';
     this._objective();
     this.say(RADIO.start, 1.2);
+    if (this.touch && this.touch.active && this.input.lastPointerType === 'touch') {
+      this.touch.goFullscreen();
+      if (!localStorage.getItem('rt.hpHint')) { localStorage.setItem('rt.hpHint', '1'); this.touch.hint('建议戴耳机游玩 · 声音能听出东西在哪个方向'); }
+    }
     this.input.requestLock();
     this.input.clearPressed();
     // 氛围版不开猎犬。第二步打开 wavesEnabled 后再刷巡夜者。
     if (this.wavesEnabled) setTimeout(() => { if (this.mode === 'play') for (let i = 0; i < 2; i++) this.enemies.spawn('hound', this.player); }, 3500);
   }
-  pause() { if (this.mode !== 'play') return; this.mode = 'pause'; this._show('pause'); this.input.exitLock(); this.audio.relayLoop(false); }
+  pause() { if (this.mode !== 'play') return; this.mode = 'pause'; this._show('pause'); if (this.touch) this.touch.releaseAll(); this.input.exitLock(); this.audio.relayLoop(false); }
   resume() { if (this.mode !== 'pause') return; this.mode = 'play'; this._show(null); this.input.requestLock(); }
   toTitle() { this.mode = 'title'; this.enemies.clear(); this.fx.clear(); this._show('title'); this.input.exitLock(); this.audio.relayLoop(false); }
   _onLock(l) {
@@ -518,9 +554,10 @@ export class Game {
       if (Math.hypot(r.x - p.x, r.z - p.z) < 2.8) { near = i; break; }
     }
     const ui = $('interact');
+    this.nearRelay = near;
     if (near === null) { ui.classList.add('hidden'); if (this.holdT > 0) this.audio.relayLoop(false); this.holdT = 0; return; }
     ui.classList.remove('hidden');
-    const holding = !!this.input.keys.KeyE;
+    const holding = !!(this.input.keys.KeyE || this.input.touch.interact);
     if (holding) {
       if (this.holdT === 0) this.audio.relayLoop(true);
       this.holdT += dt;
@@ -568,7 +605,7 @@ export class Game {
     $('hurtVig').style.opacity = Math.max(pl.hurtFlash * 1.6, pl.hp < 35 ? (1 - pl.hp / 35) * 0.8 : 0);
     const rel = pl.hurtDir - pl.yaw - Math.PI;
     const hd = $('hurtDir'); hd.style.opacity = pl.hurtFlash * 1.8; hd.style.transform = `rotate(${-rel}rad)`;
-    $('lockTip').classList.toggle('hidden', this.input.locked || this.mode !== 'play');
+    $('lockTip').classList.toggle('hidden', this.input.locked || this.mode !== 'play' || this.input.touch.active);
     // 罗盘
     const heading = ((-pl.yaw * 180 / Math.PI) % 360 + 360) % 360;
     const W = $('compass').clientWidth;
@@ -597,8 +634,9 @@ export class Game {
     const dt = Math.min(0.05, rawDt);
     this.time += dt;
     this.fpsAcc += rawDt; this.fpsN++;
-    if (this.fpsAcc > 0.5) { this.perf.fps = Math.round(this.fpsN / this.fpsAcc); $('fps').textContent = `${this.perf.fps} FPS · ${this.perf.calls} DC · ${(this.perf.tris / 1000).toFixed(0)}k △`; this.fpsAcc = 0; this.fpsN = 0; }
+    if (this.fpsAcc > 0.5) { this.perf.fps = Math.round(this.fpsN / this.fpsAcc); if ((this.prT = (this.prT || 0) + 1) % 4 === 0) this._adaptPR(); $('fps').textContent = `${this.perf.fps} FPS · ${this.perf.calls} DC · ${(this.perf.tris / 1000).toFixed(0)}k △`; this.fpsAcc = 0; this.fpsN = 0; }
     this.renderer.info.reset();
+    if (this.touch) this.touch.update(dt);
     const playing = this.mode === 'play';
     if (playing) this._step(dt);
     else if (this.mode === 'title') this._titleCam(this.time);
@@ -710,6 +748,6 @@ export class Game {
   debugState() {
     const w = this.weapon;
     return { weapon: w.def.id, slots: w.slots.map((x) => ({ ...x })), grenades: w.grenades, switching: w.switchT > 0, nades: this.nades.length, perf: { ...this.perf, geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures }, nav: { ...this.enemies.navStats, lastMs: this.nav.lastMs }, shake: this.shake,
-      mode: this.mode, hp: this.player.hp, ammo: this.weapon.ammo, reserve: this.weapon.reserve, cut: this.cut, phase: this.phase, enemies: this.enemies.alive(), pos: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z }, locked: this.input.locked, lockCalls: this.input.lockCalls, stats: { ...this.stats }, result: this.lastResult || null, quality: this.quality, flashlight: !!this.flashOn, flashlightInt: this.flashLight ? this.flashLight.intensity : 0, wavesEnabled: !!this.wavesEnabled, lampOut: !!this.lampOutDone };
+      mode: this.mode, hp: this.player.hp, ammo: this.weapon.ammo, reserve: this.weapon.reserve, cut: this.cut, phase: this.phase, enemies: this.enemies.alive(), pos: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z }, locked: this.input.locked, lockCalls: this.input.lockCalls, stats: { ...this.stats }, result: this.lastResult || null, quality: this.quality, flashlight: !!this.flashOn, flashlightInt: this.flashLight ? this.flashLight.intensity : 0, wavesEnabled: !!this.wavesEnabled, lampOut: !!this.lampOutDone, touch: this.touch ? { active: this.touch.active, preset: this.touch.cfg.preset, lockSkips: this.input.lockSkips, axis: { ...this.input.touch }, ads: this.input.adsHeld, fireHeld: this.input.fireHeld, pr: this.renderer.getPixelRatio() } : null, crouch: this.player.crouch, sprint: this.player.sprint, yaw: this.player.yaw, pitch: this.player.pitch, weaponAds: this.weapon.ads, holdT: this.holdT };
   }
 }

@@ -6,6 +6,8 @@ const MODELS = ['rifle', 'shotgun', 'grenade', 'containers', 'cranes', 'props', 
 const TEXSETS = ['paint', 'enemy', 'steel', 'gunmetal', 'polymer', 'concrete', 'corten', 'contpaint', 'wood', 'cardboard'];
 
 export const A = { models: {}, tex: {}, wet: { value: 0.85 } };
+let assetQ = null;
+export function setAssetQuality(q) { assetQ = q; }
 
 export async function loadAssets(progress) {
   const gl = new GLTFLoader();
@@ -19,8 +21,8 @@ export async function loadAssets(progress) {
   }, undefined, rej));
   const jobs = [];
   // 低画质：枪械用 1024 贴图版本（*_lo.glb）
-  const q = new URLSearchParams(location.search).get('quality') || localStorage.getItem('rt.quality') || 'high';
-  const file = (m) => (q === 'low' && (m === 'rifle' || m === 'shotgun') ? `${m}_lo` : m);
+  const q = assetQ || new URLSearchParams(location.search).get('quality') || localStorage.getItem('rt.quality') || 'high';
+  const file = (m) => ((q === 'low' || q === 'mobile') && (m === 'rifle' || m === 'shotgun') ? `${m}_lo` : m);
   for (const m of MODELS) jobs.push(new Promise((res, rej) => gl.load(`models/${file(m)}.glb`, (g) => { A.models[m] = g.scene; tick(); res(); }, undefined, rej)));
   for (const s of TEXSETS) {
     jobs.push(Promise.all([tex(`textures/${s}_a.jpg`, true), tex(`textures/${s}_n.jpg`, false), tex(`textures/${s}_orm.jpg`, false)]).then(([a, n, orm]) => { A.tex[s] = { a, n, orm }; }));
