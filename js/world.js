@@ -62,6 +62,7 @@ export class World {
     this._boat();
     this._distant();
     this.lodT = 0;
+    this.updateProps(new THREE.Vector3(SPAWN.x, 1.7, SPAWN.z));
   }
 
   _mats() {
@@ -133,8 +134,10 @@ export class World {
     // 车道线、斑马线（贴花）
     // 磨损标线：alphaMap 由噪声挖洞，车轮常压处更斑驳
     const worn = TX.wornMask(91);
-    const lineMat = new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.35, transparent: true, opacity: 0.6, alphaMap: worn, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
-    const yMat = new THREE.MeshStandardMaterial({ color: 0xd4a23a, roughness: 0.4, transparent: true, opacity: 0.65, alphaMap: worn, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
+    // 标线是铺满路面的透明面。用 Standard 会走带阴影和全部点光源的片元着色器，走近第一根黄线时每帧要数秒。
+    // 它们只是油漆，Basic + alpha 就够，而且不会在入画时重编整批光照。
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xd8d2c0, transparent: true, opacity: 0.6, alphaMap: worn, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const yMat = new THREE.MeshBasicMaterial({ color: 0xd4a23a, transparent: true, opacity: 0.65, alphaMap: worn, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const decal = (m, x, z, w, d, rot = 0) => { const p = new THREE.Mesh(new THREE.PlaneGeometry(w, d), m); p.rotation.set(-Math.PI / 2, 0, rot); p.position.set(x, 0.012, z); p.receiveShadow = true; this.root.add(p); };
     for (let i = 0; i < 8; i++) decal(lineMat, -5 + i * 1.4, 60, 0.7, 4.2);
     for (let i = 0; i < 8; i++) decal(lineMat, -5 + i * 1.4, -22, 0.7, 4.2);
@@ -194,6 +197,9 @@ export class World {
       im.count = 0; im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false; im.renderOrder = 2;
       this.root.add(im); this.refl.hidden.push(im); return im;
     };
+    // 远箱铺满视线。标准光照会让每个像素把十几盏点光源都算一遍，走路时整帧就卡在这上面。
+    // 远处只乘贴图和箱色，走近的箱子仍是原来的油漆材质，会吃灯和影子。
+    const farPaint = new THREE.MeshBasicMaterial({ map: paint.map, color: 0xb7c0c8, vertexColors: true });
     const far = (L) => {
       const g = new THREE.BoxGeometry(L, 2.59, 2.44); g.translate(0, 1.295, 0);
       const uv = g.attributes.uv, pos = g.attributes.position, nor = g.attributes.normal;
@@ -202,7 +208,7 @@ export class World {
         const u = nx > 0.5 ? pos.getZ(i) : pos.getX(i), v = ny > 0.5 ? pos.getZ(i) : pos.getY(i);
         uv.setXY(i, u * 0.5, v * 0.5);
       }
-      const im = new THREE.InstancedMesh(g, paint, 900); im.count = 0; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false; this.root.add(im); this.refl.hidden.push(im);
+      const im = new THREE.InstancedMesh(g, farPaint, 900); im.count = 0; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false; this.root.add(im); this.refl.hidden.push(im);
       return im;
     };
     // 代理：全部箱子的盒体。shadow = 只投影不着色（主通道零像素开销）；refl = 只在反射通道出现
@@ -502,7 +508,7 @@ export class World {
     if (!parts.length || !items.length) return [];
     const ims = parts.map((p) => {
       const im = new THREE.InstancedMesh(p.geometry, this.matFor(p.mat) || this.mat.steel, items.length);
-      im.count = items.length; im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false;
+      im.count = items.length; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false;
       this.root.add(im); this.refl.hidden.push(im); return im;
     });
     items.forEach((it, i) => {
@@ -517,7 +523,52 @@ export class World {
       }
     });
     ims.forEach((im) => { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); });
+    let per = 0;
+    for (const im of ims) {
+      const g = im.geometry;
+      per += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
+    }
+    const saved = [];
+    for (let i = 0; i < items.length; i++) {
+      const m = new THREE.Matrix4();
+      ims[0].getMatrixAt(i, m);
+      saved.push({ x: items[i][0], z: items[i][1], m, on: true });
+    }
+    (this._propBatches = this._propBatches || []).push({ ims, items: saved, per });
     return ims;
+  }
+  // 高模道具整张地图每帧都画。只留相机附近的，走远了再换回，避免实例缓冲每帧重传。
+  updateProps(cam) {
+    const batches = this._propBatches;
+    if (!batches) return;
+    let changed = !this._propReady;
+    for (const b of batches) {
+      const R = b.per > 500 ? 18 : 42;
+      const enter = R * R;
+      const exit = (R + 6) * (R + 6);
+      for (const it of b.items) {
+        const dx = it.x - cam.x, dz = it.z - cam.z;
+        const dd = dx * dx + dz * dz;
+        const will = it.on ? dd < exit : dd < enter;
+        if (will !== !!it.on) { it.on = will; changed = true; }
+      }
+    }
+    if (!changed) return;
+    this._propReady = true;
+    for (const b of batches) {
+      let n = 0;
+      for (const it of b.items) {
+        if (!it.on) continue;
+        for (const im of b.ims) im.setMatrixAt(n, it.m);
+        n++;
+      }
+      for (const im of b.ims) {
+        im.count = n;
+        im.instanceMatrix.needsUpdate = true;
+        if (n > 0) im.computeBoundingSphere();
+        im.frustumCulled = n > 0;
+      }
+    }
   }
   _put(node, x, z, ry = 0, y = 0) {
     const g = instance('yardprops', node, this.matFor);
@@ -826,6 +877,7 @@ export class World {
       this._lodYaw = camera.rotation.y;
       camera.getWorldDirection(this._fwd || (this._fwd = new THREE.Vector3()));
       this.updateLOD(cam, this._fwd);
+      this.updateProps(cam);
     } else if (this.lodT <= 0) this.lodT = 0.4;
     this.updateLamps(t);
     this.groundMat.userData.rippleTime.value = t;

@@ -29,6 +29,10 @@ export class FX {
     this.tracerMat = new THREE.MeshBasicMaterial({ color: 0xffd08a, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
     this.tracerGeo = new THREE.CylinderGeometry(0.012, 0.012, 1, 4, 1, true); this.tracerGeo.rotateX(Math.PI / 2);
     this.flashes = [];
+    // 一盏常驻枪口灯。每次 new PointLight 都会让整批材质按新的光源数量重编译，走路开枪时画面会卡住。
+    this._muzzle = new THREE.PointLight(0xff9a40, 0, 10, 2);
+    this._muzzle.position.set(0, -40, 0);
+    scene.add(this._muzzle);
     // 烟（普通混合）
     this.smoke = [];
     this.smokeMat = new THREE.SpriteMaterial({ map: glowTex, color: 0x2a2a2a, transparent: true, depthWrite: false, opacity: 0.5 });
@@ -83,8 +87,8 @@ export class FX {
     this.smoke.push({ s, life, t: 0, size });
   }
   light(p, color, intensity, life, dist = 10) {
-    const l = new THREE.PointLight(color, intensity, dist, 2);
-    l.position.copy(p); this.scene.add(l);
+    const l = this._muzzle;
+    l.color.set(color); l.intensity = intensity; l.distance = dist; l.position.copy(p);
     this.flashes.push({ l, life, t: 0, i0: intensity });
   }
   tracer(a, b, color) {
@@ -116,8 +120,8 @@ export class FX {
     }
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i]; f.t += dt;
+      if (f.t > f.life) { if (f.l === this._muzzle) { f.l.intensity = 0; f.l.position.set(0, -40, 0); } this.flashes.splice(i, 1); continue; }
       f.l.intensity = f.i0 * Math.max(0, 1 - f.t / f.life);
-      if (f.t > f.life) { this.scene.remove(f.l); f.l.dispose(); this.flashes.splice(i, 1); }
     }
     for (let i = this.debris.length - 1; i >= 0; i--) {
       const d = this.debris[i]; d.t += dt;

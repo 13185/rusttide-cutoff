@@ -17,12 +17,12 @@ import { damp, fmtTime } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const QUAL = {
-  low: { pr: 0.75, shadow: 0, refl: 0, post: false, rain: 1600, lod: 16 },
-  medium: { pr: 1, shadow: 1024, refl: 0.35, post: true, rain: 3000, lod: 26 },
-  high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200, lod: 36 },
-  ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 60 },
+  low: { pr: 0.75, shadow: 0, refl: 0, post: false, rain: 1600, lod: 8 },
+  medium: { pr: 1, shadow: 1024, refl: 0.35, post: true, rain: 3000, lod: 12 },
+  high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200, lod: 14 },
+  ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 18 },
   // 手机：限分辨率（自适应 0.8–1.25）、无阴影无反射、轻后期（保留 ACES/雾/锐化，去 SSAO 与泛光）、少雨、近 LOD
-  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 15 }
+  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 8 }
 };
 // 仅用于「首次打开时预选手机画质与低模枪」的资源判断，绝不用来关闭指针锁定
 const MOBILE_UA = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent || '');
@@ -121,10 +121,37 @@ export class Game {
     this._ui();
     this.mode = 'title';
     this._titleCam(0);
+    await this._warmEnemyPrograms();
     this.clock = new THREE.Clock();
     this.time = 0; this.fpsAcc = 0; this.fpsN = 0;
     this.renderer.setAnimationLoop(() => this._frame());
     this.ready = true;
+  }
+
+  // 点光源数量是着色器关键字。看守和后来刷出的巡夜者如果各 new 一盏灯，整批材质会在走路中途重编译。
+  // 灯池在加载时就固定好，这里再把三种敌人和看守的材质编译进缓存，开打后不再出新程序。
+  async _warmEnemyPrograms() {
+    const cam = this.camera;
+    const pos = cam.position.clone();
+    const quat = cam.quaternion.clone();
+    cam.position.set(SPAWN.x, 1.65, 72);
+    cam.lookAt(SPAWN.x, 1.2, 66);
+    cam.updateMatrixWorld(true);
+    const dummy = { position: { x: SPAWN.x, y: 0, z: 72 }, yaw: 0 };
+    const audio = this.enemies.audio;
+    this.enemies.audio = null;
+    for (const type of ['boss', 'hound', 'gull', 'warden']) {
+      const e = this.enemies.spawn(type, dummy, { x: SPAWN.x, z: 66 });
+      e.g.traverse((o) => { o.frustumCulled = false; });
+      e.g.updateMatrixWorld(true);
+    }
+    this.enemies.audio = audio;
+    await this.renderer.compileAsync(this.scene, cam);
+    this.enemies.clear();
+    cam.position.copy(pos);
+    cam.quaternion.copy(quat);
+    cam.updateMatrixWorld(true);
+    this._titleCam(0);
   }
 
   _lights() {
@@ -177,7 +204,10 @@ export class Game {
       this.baseHemi = mob ? 1.12 : q === 'low' ? 1.0 : 1.06;
       this.hemi.intensity = this.baseHemi;
     }
-    if (this.enemies) this.enemies.lightCap = mob ? 3 : 6;
+    if (this.enemies) {
+      this.enemies.lightCap = mob ? 3 : 6;
+      if (this.enemies._ensurePool) this.enemies._ensurePool();
+    }
     // 手机：夜雾在 150 米外已近全浓，远裁剪收到 170 米省掉看不见的远景；天空球随之缩小（只按方向着色）
     this.camera.far = mob ? 170 : 1200; this.camera.updateProjectionMatrix();
     if (this.sky) this.sky.mesh.scale.setScalar(mob ? 0.17 : 1);
