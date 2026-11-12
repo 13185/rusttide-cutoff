@@ -22,7 +22,7 @@ const QUAL = {
   high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200, lod: 14 },
   ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 18 },
   // 手机：限分辨率（自适应 0.8–1.25）、无阴影无反射、轻后期（保留 ACES/雾/锐化，去 SSAO 与泛光）、少雨、近 LOD
-  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 8 }
+  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 10 }
 };
 // 仅用于「首次打开时预选手机画质与低模枪」的资源判断，绝不用来关闭指针锁定
 const MOBILE_UA = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent || '');
@@ -60,8 +60,9 @@ export class Game {
     this.renderer.autoClear = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.fov, innerWidth / innerHeight, 0.05, 1200);
-    this.sunDir = new THREE.Vector3(0.28, 0.55, -0.78).normalize();
-    this.scene.fog = new THREE.FogExp2(0x1c2832, 0.0145);
+    // 低空暖阳正对巷道（f4ab086 的黎明方向）。只改方向和颜色，不增减灯。
+    this.sunDir = new THREE.Vector3(0.13, 0.085, -1).normalize();
+    this.scene.fog = new THREE.FogExp2(0x6c7178, 0.008);
     this.input = new Input(canvas);
     canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); const el = document.getElementById('glLost'); if (el) el.classList.remove('hidden'); this.renderer.setAnimationLoop(null); });
     this.audio = new Audio();
@@ -88,7 +89,7 @@ export class Game {
     this.fx.world = this.world;
     this.rain = new Rain(this.scene, 5000);
     this.refl.hidden.push(this.rain.mesh);
-    await step('正在校准午夜光照与手电', 0.8);
+    await step('正在校准黎明光照与手电', 0.8);
     this.enemies = new Enemies(this.scene, this.world, this.fx, this.audio);
     this.enemies.onKill = (e) => this._onKill(e);
     this.enemies.nav = this.nav;
@@ -155,15 +156,15 @@ export class Game {
   }
 
   _lights() {
-    // 极弱冷月光只勾轮廓，场景主要靠稀疏工业灯和手电
-    const sun = new THREE.DirectionalLight(0xb8c8d8, 0.45);
+    // 黎明低阳：暖色、够亮，巷道和箱色不用手电也能看清。阴影半径收一点，边更清楚。
+    const sun = new THREE.DirectionalLight(0xffb878, 2.6);
     sun.position.copy(this.sunDir).multiplyScalar(120);
     sun.castShadow = true;
     const sc = sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 1; sc.far = 400;
-    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04; sun.shadow.radius = 3.5; sun.shadow.blurSamples = 12;
+    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04; sun.shadow.radius = 1.5; sun.shadow.blurSamples = 12;
     this.scene.add(sun, sun.target);
     this.sun = sun;
-    this.hemi = new THREE.HemisphereLight(0x7a8ca0, 0x1c1a18, 0.92);
+    this.hemi = new THREE.HemisphereLight(0xb7c4d4, 0x6e5c48, 2.0);
     this.scene.add(this.hemi);
     // 手电筒：绑相机，窄锥远衰减。不占用右键开镜 / Q 换枪
     const fl = new THREE.SpotLight(0xeef4ff, 0, 28, 34 * Math.PI / 180, 0.5, 1.0);
@@ -180,10 +181,10 @@ export class Game {
     const pm = new THREE.PMREMGenerator(this.renderer);
     const es = new THREE.Scene();
     const sky2 = new Sky(this.sunDir); sky2.mesh.material.uniforms = this.sky.uniforms; es.add(sky2.mesh);
-    const groundCol = new THREE.Mesh(new THREE.CircleGeometry(800, 16), new THREE.MeshBasicMaterial({ color: 0x16181a }));
+    const groundCol = new THREE.Mesh(new THREE.CircleGeometry(800, 16), new THREE.MeshBasicMaterial({ color: 0x4d4943 }));
     groundCol.rotation.x = -Math.PI / 2; groundCol.position.y = -5; es.add(groundCol);
     this.scene.environment = pm.fromScene(es, 0.02).texture;
-    this.scene.environmentIntensity = 0.62;
+    this.scene.environmentIntensity = 1.6;
     pm.dispose();
   }
 
@@ -200,15 +201,15 @@ export class Game {
     this.post.enabled = c.post;
     this.post.applyQuality(q === 'ultra' ? 'high' : q === 'medium' ? 'medium' : mob ? 'low' : q);
     if (this.hemi) {
-      // 电脑高画质抬一点环境补光，影子还在，巷道不再被压成一片黑。手机档维持原来的 1.12。
-      this.baseHemi = mob ? 1.12 : q === 'low' ? 1.0 : 1.06;
+      // 黎明补光：天光偏冷、地面反弹偏暖。手机和电脑同一套，只是手机没有阴影。
+      this.baseHemi = q === 'low' ? 1.7 : 2.0;
       this.hemi.intensity = this.baseHemi;
     }
     if (this.enemies) {
       this.enemies.lightCap = mob ? 3 : 6;
       if (this.enemies._ensurePool) this.enemies._ensurePool();
     }
-    // 手机：夜雾在 150 米外已近全浓，远裁剪收到 170 米省掉看不见的远景；天空球随之缩小（只按方向着色）
+    // 手机：雾在远处仍能看见岸桥轮廓，远裁剪收到 170 米省掉看不见的远景；天空球随之缩小（只按方向着色）
     this.camera.far = mob ? 170 : 1200; this.camera.updateProjectionMatrix();
     if (this.sky) this.sky.mesh.scale.setScalar(mob ? 0.17 : 1);
     if (this.post && this.post.uSSAO) this.post.uSSAO.cameraFar.value = this.camera.far;
@@ -216,20 +217,18 @@ export class Game {
     this.rain.setCount(c.rain);
     this.world.setLodDistance(c.lod); this.world.updateLOD(this.camera.position);
     this.world.applyLightBudget(q);
-    // 夜间色调与锐度不随画质被洗回暖色柔焦
+    // 黎明调色：f4ab086 的曝光和lift，再把体积光加强一档。锐度保持。
     if (this.post && this.post.uComp) {
-      this.post.uComp.lift.value.set(0.004, 0.008, 0.020);
-      this.post.uComp.gain.value.set(0.92, 0.98, 1.08);
-      this.post.uComp.contrast.value = 1.12;
-      this.post.uComp.saturation.value = 0.86;
-      this.post.uComp.vignette.value = 0.28;
-      this.post.uComp.grain.value = mob || q === 'low' ? 0.016 : 0.02;
+      this.post.uComp.lift.value.set(0.006, 0.010, 0.016);
+      this.post.uComp.gain.value.set(1.03, 1.0, 0.97);
+      this.post.uComp.contrast.value = 1.18;
+      this.post.uComp.saturation.value = 0.82;
+      this.post.uComp.grain.value = mob || q === 'low' ? 0.012 : 0.028;
       this.post.uComp.sharpen.value = q === 'low' ? 0.22 : mob ? 0.32 : 0.36;
-      this.post.uComp.shafts.value = q === 'low' || mob ? 0 : 0.22;
-      // 手机维持 1.52。电脑高/超高提到 1.48，接近手机的可读夜景，阴影和 SSAO 仍开着。
-      this.baseExposure = mob ? 1.52 : 1.48;
+      this.post.uComp.shafts.value = q === 'low' || mob ? 0 : q === 'medium' ? 0.75 : 1.15;
+      this.baseExposure = 1.42;
       this.post.uComp.exposure.value = this.baseExposure;
-      this.post.uComp.vignette.value = mob ? 0.2 : 0.22;
+      this.post.uComp.vignette.value = mob ? 0.12 : 0.16;
     }
     this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; });
     this._resize();
@@ -759,9 +758,13 @@ export class Game {
       k = u < 0.16 ? 1 : u < 0.28 ? 0.12 : u < 0.46 ? 0.78 : u < 0.58 ? 0.18 : Math.max(0, (1 - u) / 0.42);
       if (this.flashLife <= 0) k = 0;
     }
-    if (this.sky && this.sky.uniforms.uFlash) this.sky.uniforms.uFlash.value = k * 1.25;
-    if (this.post && this.post.uComp && this.baseExposure) this.post.uComp.exposure.value = this.baseExposure * (1 + k * 1.05);
-    if (this.hemi && this.baseHemi) this.hemi.intensity = this.baseHemi * (1 + k * 2.4);
+    // 白天里，闪的间隙先压暗，峰值再打满，亮底上才看得出全屏一白。
+    const dip = this.flashLife > 0 && k < 0.5 ? 0.7 : 1;
+    if (this.sky && this.sky.uniforms.uFlash) this.sky.uniforms.uFlash.value = k * 2.1;
+    if (this.sky && this.sky.uniforms.cover) this.sky.uniforms.cover.value = 0.62 + (this.flashLife > 0 ? (1 - k) * 0.22 : 0);
+    if (this.post && this.post.uComp && this.baseExposure) this.post.uComp.exposure.value = this.baseExposure * dip * (1 + k * 1.85);
+    if (this.hemi && this.baseHemi) this.hemi.intensity = this.baseHemi * dip * (1 + k * 1.15);
+    if (this.sun) this.sun.intensity = 2.6 * dip * (1 + k * 0.45);
     if (this.boltLines) {
       this.boltLines.material.opacity = Math.max(0.15, k);
       if (k === 0) { this.scene.remove(this.boltLines); this.boltLines.geometry.dispose(); this.boltLines = null; }

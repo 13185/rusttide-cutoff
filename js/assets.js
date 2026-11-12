@@ -5,7 +5,7 @@ import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
 const MODELS = ['rifle', 'shotgun', 'grenade', 'containers', 'cranes', 'props', 'enemies', 'yardprops'];
 const TEXSETS = ['paint', 'enemy', 'steel', 'gunmetal', 'polymer', 'concrete', 'corten', 'contpaint', 'wood', 'cardboard'];
 
-export const A = { models: {}, tex: {}, wet: { value: 0.85 } };
+export const A = { models: {}, tex: {}, wet: { value: 1.0 } };
 let assetQ = null;
 export function setAssetQuality(q) { assetQ = q; }
 

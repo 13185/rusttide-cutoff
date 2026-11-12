@@ -199,7 +199,7 @@ export class World {
     };
     // 远箱铺满视线。标准光照会让每个像素把十几盏点光源都算一遍，走路时整帧就卡在这上面。
     // 远处只乘贴图和箱色，走近的箱子仍是原来的油漆材质，会吃灯和影子。
-    const farPaint = new THREE.MeshBasicMaterial({ map: paint.map, color: 0xb7c0c8, vertexColors: true });
+    const farPaint = new THREE.MeshBasicMaterial({ map: paint.map, color: 0xfff6ea, vertexColors: true });
     const far = (L) => {
       const g = new THREE.BoxGeometry(L, 2.59, 2.44); g.translate(0, 1.295, 0);
       const uv = g.attributes.uv, pos = g.attributes.position, nor = g.attributes.normal;

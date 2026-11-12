@@ -311,7 +311,7 @@ const grade = await page.evaluate(() => {
   const g = window.__game;
   return { q: g.quality, exp: g.baseExposure, hemi: g.baseHemi, shadow: g.renderer.shadowMap.enabled, refl: g.refl.enabled, ssao: !!(g.post && g.post.doSSAO) };
 });
-ok(grade.q === 'high' && grade.shadow && grade.refl && grade.ssao && grade.exp >= 1.45 && grade.hemi >= 1.02, 'high stays detailed and readable (exp ' + grade.exp + ', hemi ' + grade.hemi + ', shadow ' + grade.shadow + ')');
+ok(grade.q === 'high' && grade.shadow && grade.refl && grade.ssao && grade.exp >= 1.35 && grade.exp <= 1.6 && grade.hemi >= 1.8, 'high stays the dawn grade (exp ' + grade.exp + ', hemi ' + grade.hemi + ', shadow ' + grade.shadow + ')');
 await page.evaluate(() => { const el = document.getElementById('volSfx'); el.value = 40; el.dispatchEvent(new Event('input')); });
 ok(await page.evaluate(() => Math.abs(window.__game.audio.vol.sfx - 0.4) < 0.01), 'sfx slider');
 ok(await page.evaluate(() => !!window.__game.audio.ctx && !!window.__game.audio.sfx), 'audio context + buses created');
