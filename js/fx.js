@@ -182,8 +182,8 @@ void main() {
 const RAIN_FS = `
 varying float vDist;
 void main() {
-  float fog = clamp(exp(-vDist * 0.0145), 0.0, 1.0);
-  gl_FragColor = vec4(0.722, 0.737, 0.761, 0.22 * fog);
+  float fog = clamp(exp(-vDist * 0.008), 0.0, 1.0);
+  gl_FragColor = vec4(0.82, 0.80, 0.76, 0.16 * fog);
 }`;
 export class Rain {
   constructor(scene, count = 5000) {

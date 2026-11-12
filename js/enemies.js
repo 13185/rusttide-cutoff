@@ -23,8 +23,8 @@ function mats() {
     joint: pbr('steel', { color: 0x666666 }),
     piston: new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.18, metalness: 1 }),
     cable: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.2 }),
-    eye: new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xff3a18, emissiveIntensity: 8, roughness: 0.25 }),
-    core: new THREE.MeshStandardMaterial({ color: 0x041816, emissive: 0x3ad6c8, emissiveIntensity: 7, roughness: 0.25 })
+    eye: new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xff3a18, emissiveIntensity: 16, roughness: 0.25 }),
+    core: new THREE.MeshStandardMaterial({ color: 0x041816, emissive: 0x3ad6c8, emissiveIntensity: 14, roughness: 0.25 })
   };
   M.byName = { M_en_hull: M.hull, M_en_plate: M.plate, M_en_hazard: M.hazard, M_en_joint: M.joint, M_en_piston: M.piston, M_en_cable: M.cable, M_weak_red: M.eye, M_weak_amber: M.core };
   return M;
@@ -80,9 +80,9 @@ const BUILD = { hound: buildHound, gull: buildGull, warden: buildWarden, boss: b
 function addRim(mesh, color) {
   if (!mesh || !mesh.isMesh) return;
   const shell = new THREE.Mesh(mesh.geometry, new THREE.MeshBasicMaterial({
-    color, side: THREE.BackSide, transparent: true, opacity: 0.45, depthWrite: false
+    color, side: THREE.BackSide, transparent: true, opacity: 0.78, depthWrite: false
   }));
-  shell.scale.setScalar(1.045);
+  shell.scale.setScalar(1.06);
   shell.renderOrder = 1;
   shell.userData.rim = true;
   mesh.add(shell);
@@ -170,12 +170,12 @@ export class Enemies {
     return e;
   }
 
-  // 夜里靠自发光和一圈外轮廓认人；点光源只留给最近的几只，避免手机档灯数爆炸
+  // 白天也靠自发光和轮廓认人。点光源只从固定灯池里借，不新增灯。
   _glow(e) {
     const col = new THREE.Color(e.def.glow || 0xff4a22);
     if (this.fx && this.fx.glowTex && e.eye) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.fx.glowTex, color: col, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.9 }));
-      s.scale.setScalar(e.boss ? 2.4 : 0.85);
+      s.scale.setScalar(e.boss ? 3.6 : 1.85);
       e.eye.add(s);
       e.glowSprite = s;
     }
@@ -262,7 +262,7 @@ export class Enemies {
           e.g.traverse((o) => { if (o.isMesh && !o.userData.rim) o.material = o.userData.baseMat; });
         }
       }
-      if (e.glowSprite) e.glowSprite.material.opacity = 0.7 + Math.sin(e.t * (e.boss ? 5 : 7)) * 0.25;
+      if (e.glowSprite) e.glowSprite.material.opacity = 1;
       if (Math.random() < dt * 0.06) this.audio && this.audio.enemyVoice(e.boss ? 'boss' : e.type, 'idle', e.pos);
     }
     const lit = this._lit || (this._lit = []);
@@ -277,8 +277,8 @@ export class Enemies {
       if (e.eye) { e.g.updateMatrixWorld(true); e.eye.getWorldPosition(L.position); }
       else L.position.set(e.pos.x, e.pos.y + 1.4, e.pos.z);
       L.color.set(e.def.glow || 0xff4a22);
-      L.intensity = e.boss ? 5.5 : 2.4;
-      L.distance = e.boss ? 16 : 7;
+      L.intensity = e.boss ? 8 : 3.6;
+      L.distance = e.boss ? 18 : 9;
     }
     // 清除尸体
     for (let i = this.list.length - 1; i >= 0; i--) {

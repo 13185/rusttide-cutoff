@@ -160,7 +160,7 @@ export class Weapon {
     for (const v of this.views) this.holder.add(v.g);
     this.holder.add(this.flashLight, this.grenadeMesh);
     this.scene.add(this.holder);
-    // 视角模型灯光：冷色主光打出金属窄高光，轮廓和近处补光只把护木/手套从夜里托出来。枪层与世界一起进后期（曝光约 ×1.34 + ACES）
+    // 视角模型灯光：冷色主光打出金属窄高光，补光把护木和手套从阴影里托出来。枪层与世界一起进后期。
     this.scene.add(new THREE.HemisphereLight(0xb4bec8, 0x3a3530, 1.05));
     const L = (col, int, pos, tgt) => { const l = new THREE.DirectionalLight(col, int); l.position.set(...pos); l.target.position.set(...tgt); this.holder.add(l, l.target); return l; };
     L(0xf4f7fb, 1.85, [-0.9, 1.5, 0.35], [0.08, -0.08, -0.48]);

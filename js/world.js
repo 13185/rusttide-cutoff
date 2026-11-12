@@ -197,18 +197,100 @@ export class World {
       im.count = 0; im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false; im.renderOrder = 2;
       this.root.add(im); this.refl.hidden.push(im); return im;
     };
-    // 远箱铺满视线。标准光照会让每个像素把十几盏点光源都算一遍，走路时整帧就卡在这上面。
-    // 远处只乘贴图和箱色，走近的箱子仍是原来的油漆材质，会吃灯和影子。
-    const farPaint = new THREE.MeshBasicMaterial({ map: paint.map, color: 0xb7c0c8, vertexColors: true });
+    // 远箱仍是盒子，但贴上同一张波纹漆和法线，只算太阳和天光，不进点光源循环。
+    // 这样整面墙在任何距离都是有颜色、有棱的箱子，又不会在走路时把整批材质重新编译。
+    const farAlbedo = A.tex.contpaint.a;
+    const farNormal = A.tex.contpaint.n;
+    const farPaint = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: farAlbedo },
+        normalMap: { value: farNormal },
+        sunDir: { value: new THREE.Vector3(0.13, 0.085, -1).normalize() },
+        sunCol: { value: new THREE.Color(0xffb878) },
+        skyCol: { value: new THREE.Color(0xb7c4d4) },
+        groundCol: { value: new THREE.Color(0x6e5c48) },
+        fogColor: { value: new THREE.Color(0x6c7178) },
+        fogDensity: { value: 0.008 }
+      },
+      vertexShader: `
+        attribute vec2 uv2;
+        varying vec3 vN;
+        varying vec3 vW;
+        varying vec2 vUv;
+        varying vec2 vFace;
+        varying vec3 vColor;
+        void main() {
+          vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          vW = wp.xyz;
+          mat3 im = mat3(instanceMatrix);
+          vN = normalize(mat3(modelMatrix) * im * normal);
+          vUv = uv;
+          vFace = uv2;
+          vColor = instanceColor;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform sampler2D normalMap;
+        uniform vec3 sunDir;
+        uniform vec3 sunCol;
+        uniform vec3 skyCol;
+        uniform vec3 groundCol;
+        uniform vec3 fogColor;
+        uniform float fogDensity;
+        varying vec3 vN;
+        varying vec3 vW;
+        varying vec2 vUv;
+        varying vec2 vFace;
+        varying vec3 vColor;
+        void main() {
+          vec3 n = normalize(vN);
+          vec3 mapN = texture2D(normalMap, vUv).xyz * 2.0 - 1.0;
+          vec3 dp1 = dFdx(vW);
+          vec3 dp2 = dFdy(vW);
+          vec2 duv1 = dFdx(vUv);
+          vec2 duv2 = dFdy(vUv);
+          vec3 T = dp1 * duv2.y - dp2 * duv1.y;
+          float lenT = length(T);
+          if (lenT > 1e-5) {
+            T /= lenT;
+            vec3 B = normalize(dp2 * duv1.x - dp1 * duv2.x);
+            n = normalize(mat3(T, B, n) * mapN);
+          }
+          vec3 alb = pow(texture2D(map, vUv).rgb, vec3(2.2)) * vColor;
+          float edge = min(min(vFace.x, 1.0 - vFace.x), min(vFace.y, 1.0 - vFace.y));
+          alb = mix(vec3(0.45, 0.24, 0.12), alb, smoothstep(0.0, 0.045, edge));
+          float up = n.y * 0.5 + 0.5;
+          vec3 hemi = mix(groundCol, skyCol, up);
+          float ndl = max(dot(n, normalize(sunDir)), 0.0);
+          vec3 viewDir = normalize(cameraPosition - vW);
+          float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.4);
+          vec3 col = alb * (hemi * 0.95 + sunCol * ndl * 1.45) + sunCol * rim * alb * 0.28;
+          float dist2 = dot(vW - cameraPosition, vW - cameraPosition);
+          float fog = 1.0 - exp(-fogDensity * fogDensity * dist2);
+          col = mix(col, fogColor, clamp(fog, 0.0, 1.0));
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    });
     const far = (L) => {
       const g = new THREE.BoxGeometry(L, 2.59, 2.44); g.translate(0, 1.295, 0);
       const uv = g.attributes.uv, pos = g.attributes.position, nor = g.attributes.normal;
+      const face = new Float32Array(uv.count * 2);
       for (let i = 0; i < uv.count; i++) {
         const nx = Math.abs(nor.getX(i)), ny = Math.abs(nor.getY(i));
-        const u = nx > 0.5 ? pos.getZ(i) : pos.getX(i), v = ny > 0.5 ? pos.getZ(i) : pos.getY(i);
-        uv.setXY(i, u * 0.5, v * 0.5);
+        const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
+        let u, v, fu, fv;
+        if (ny > 0.5) { u = px; v = pz; fu = px / L + 0.5; fv = pz / 2.44 + 0.5; }
+        else if (nx > 0.5) { u = pz; v = py; fu = pz / 2.44 + 0.5; fv = py / 2.59; }
+        else { u = px; v = py; fu = px / L + 0.5; fv = py / 2.59; }
+        uv.setXY(i, u * 0.42, v * 0.55);
+        face[i * 2] = THREE.MathUtils.clamp(fu, 0, 1);
+        face[i * 2 + 1] = THREE.MathUtils.clamp(fv, 0, 1);
       }
-      const im = new THREE.InstancedMesh(g, farPaint, 900); im.count = 0; im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false; this.root.add(im); this.refl.hidden.push(im);
+      g.setAttribute('uv2', new THREE.BufferAttribute(face, 2));
+      const im = new THREE.InstancedMesh(g, farPaint, 900); im.count = 0; im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false; this.root.add(im); this.refl.hidden.push(im);
       return im;
     };
     // 代理：全部箱子的盒体。shadow = 只投影不着色（主通道零像素开销）；refl = 只在反射通道出现

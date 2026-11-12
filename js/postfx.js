@@ -95,7 +95,7 @@ void main() {
       decay *= 0.78;
     }
     float fall = smoothstep(1.1, 0.05, dist);
-    col += vec3(1.0, 0.72, 0.42) * acc * 0.020 * shafts * fall;
+    col += vec3(1.0, 0.78, 0.48) * acc * 0.032 * shafts * fall;
   }
 
   col = mix(vec3(luma(col)), col, saturation);
@@ -202,7 +202,7 @@ export class PostFX {
     this.fsCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.fsScene.add(this.quad);
 
-    this.uBright = { tDiffuse: { value: null }, threshold: { value: 0.88 } };
+    this.uBright = { tDiffuse: { value: null }, threshold: { value: 0.76 } };
     this.brightMat = fsMat(BRIGHT, this.uBright);
     this.uBlur = { tDiffuse: { value: null }, direction: { value: new THREE.Vector2(1, 0) }, resolution: { value: new THREE.Vector2(bw, bh) } };
     this.blurMat = fsMat(BLUR, this.uBlur);
@@ -242,7 +242,7 @@ export class PostFX {
     this.quality = q;
     const high = q === 'high';
     const low = q === 'low';
-    this.uComp.bloomStr.value = low ? 0.0 : high ? 0.44 : 0.34;
+    this.uComp.bloomStr.value = low ? 0.0 : high ? 0.55 : 0.4;
     this.uComp.grain.value = low ? 0.012 : 0.028;
     this.uComp.shafts.value = low ? 0.0 : high ? 0.88 : 0.62;
     this.uComp.sharpen.value = low ? 0.18 : high ? 0.36 : 0.28;

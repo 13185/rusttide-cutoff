@@ -111,7 +111,7 @@ normal = normalize(mix(normal, nonPerturbedNormal, pud * 0.9));`)
   rc += texture2D(tRefl, ruv - vec2(0.0, blur*2.0)).rgb * 0.15;
   vec3 V = normalize(cameraPosition - vWPos);
   float fres = 0.08 + 0.92 * pow(1.0 - clamp(V.y, 0.0, 1.0), 5.0);
-  float k = clamp(fres * (0.25 + wet * 1.1), 0.0, 0.95) * ${amount.toFixed(3)} * reflStrength;
+  float k = clamp(fres * (0.32 + wet * 1.28), 0.0, 0.95) * ${amount.toFixed(3)} * reflStrength;
   gl_FragColor.rgb = mix(gl_FragColor.rgb, rc, k);
 }`);
     };
