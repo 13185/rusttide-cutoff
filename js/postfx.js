@@ -248,7 +248,7 @@ export class PostFX {
     this.uComp.sharpen.value = low ? 0.18 : high ? 0.36 : 0.28;
     this.doBloom = !low;
     this.doSSAO = !low;
-    this.uSSAO.strength.value = high ? 0.85 : 0.6;
+    this.uSSAO.strength.value = high ? 0.48 : 0.4;
   }
 
   setSize(w, h) {
@@ -259,14 +259,17 @@ export class PostFX {
     this.brightRT.setSize(bw, bh);
     this.blurRT.setSize(bw, bh);
     this.blurRT2.setSize(bw, bh);
-    this.ssaoRT.setSize(Math.max(2, w * pr), Math.max(2, h * pr));
+    const sw = Math.max(2, Math.floor(w * pr * 0.5));
+    const sh = Math.max(2, Math.floor(h * pr * 0.5));
+    this.ssaoRT.setSize(sw, sh);
     this.uBlur.resolution.value.set(bw, bh);
-    this.uSSAO.resolution.value.set(Math.max(2, w * pr), Math.max(2, h * pr));
+    this.uSSAO.resolution.value.set(sw, sh);
     this.uComp.resolution.value.set(Math.max(2, w * pr), Math.max(2, h * pr));
   }
 
   updateSun(camera, sunDir) {
-    const v = sunDir.clone().normalize().multiplyScalar(-80);
+    const v = this._sunV || (this._sunV = new THREE.Vector3());
+    v.copy(sunDir).normalize().multiplyScalar(-80);
     v.project(camera);
     this.uComp.sunPos.value.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5);
   }
@@ -290,7 +293,7 @@ export class PostFX {
     if (this.doSSAO) {
       this.uSSAO.tDiffuse.value = this.sceneRT.texture;
       this.uSSAO.tDepth.value = this.sceneRT.depthTexture;
-      this.uSSAO.resolution.value.set(this.sceneRT.width, this.sceneRT.height);
+      this.uSSAO.resolution.value.set(this.ssaoRT.width, this.ssaoRT.height);
       this.quad.material = this.ssaoMat;
       r.setRenderTarget(this.ssaoRT);
       r.render(this.fsScene, this.fsCam);

@@ -74,7 +74,12 @@ export class TouchControls {
     r.addEventListener('pointermove', (e) => this._move(e));
     r.addEventListener('pointerup', (e) => this._up(e));
     r.addEventListener('pointercancel', (e) => this._up(e));
-    r.addEventListener('lostpointercapture', (e) => this._up(e));
+    // 有的浏览器先丢捕获再发 pointerup。手电/暂停要看 pointerup 的落点，不能被这次丢捕获吃掉。
+    r.addEventListener('lostpointercapture', (e) => {
+      const p = this.ptr.get(e.pointerId);
+      if (p && p.kind === 'btn' && (p.act === 'flash' || p.act === 'pause')) return;
+      this._up(e);
+    });
     r.querySelectorAll('[data-act]').forEach((b) => {
       b.addEventListener('pointerdown', (e) => this._btnDown(e, b));
       b.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -139,6 +144,7 @@ export class TouchControls {
       else if (p.act === 'ctx') inp.touch.interact = false;
       else if (p.act === 'flash' || p.act === 'pause') {
         // 干净点按：移动小于 14px、按住不超过 1.5 秒（按事件时间戳计）、且在按钮上松开；滑过不触发
+        // 用事件时间戳，不用 performance.now()：主线程被一帧卡住时，处理函数会晚几秒才跑到，干净点按不能因此被当成长按。
         const moved = Math.hypot(e.clientX - p.sx, e.clientY - p.sy); const dt = (e.timeStamp || performance.now()) - p.t;
         const rc = p.b.getBoundingClientRect(); const inside = e.type === 'pointerup' && e.clientX >= rc.left - 6 && e.clientX <= rc.right + 6 && e.clientY >= rc.top - 6 && e.clientY <= rc.bottom + 6;
         if (moved < 14 && dt < 1500 && inside) { if (p.act === 'flash') inp.tap('KeyF'); else this.g.pause(); }

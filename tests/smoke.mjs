@@ -306,6 +306,12 @@ await page.click('#qualSeg button[data-q=low]');
 await page.waitForTimeout(800);
 s = await st(); ok(s.quality === 'low', 'quality switch to low');
 await page.click('#qualSeg button[data-q=high]');
+await page.waitForTimeout(200);
+const grade = await page.evaluate(() => {
+  const g = window.__game;
+  return { q: g.quality, exp: g.baseExposure, hemi: g.baseHemi, shadow: g.renderer.shadowMap.enabled, refl: g.refl.enabled, ssao: !!(g.post && g.post.doSSAO) };
+});
+ok(grade.q === 'high' && grade.shadow && grade.refl && grade.ssao && grade.exp >= 1.45 && grade.hemi >= 1.02, 'high stays detailed and readable (exp ' + grade.exp + ', hemi ' + grade.hemi + ', shadow ' + grade.shadow + ')');
 await page.evaluate(() => { const el = document.getElementById('volSfx'); el.value = 40; el.dispatchEvent(new Event('input')); });
 ok(await page.evaluate(() => Math.abs(window.__game.audio.vol.sfx - 0.4) < 0.01), 'sfx slider');
 ok(await page.evaluate(() => !!window.__game.audio.ctx && !!window.__game.audio.sfx), 'audio context + buses created');

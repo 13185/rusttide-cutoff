@@ -211,7 +211,7 @@ export class Enemies {
 
   update(dt, player, t) {
     const pp = player.position;
-    this.pathBudget = 4;
+    this.pathBudget = 1;
     const eyeP = this._w.set(pp.x, pp.y + 1.5, pp.z);
     for (const e of this.list) {
       e.t += dt;
@@ -233,14 +233,26 @@ export class Enemies {
       else this._warden(e, dt, player, dist, dx, dz, dyaw, eyeP);
       e.g.position.copy(e.pos); e.g.rotation.y = e.yaw;
       // 受击闪白
-      if (e.flash > 0) { e.flash -= dt; e.g.traverse((o) => { if (o.isMesh && !o.userData.rim && o.userData.baseMat !== M.eye && o.userData.baseMat !== M.core) o.material = flashMat; }); }
-      else e.g.traverse((o) => { if (o.isMesh && !o.userData.rim) o.material = o.userData.baseMat; });
+      if (e.flash > 0) {
+        e.flash -= dt;
+        if (!e._flashOn) {
+          e._flashOn = true;
+          e.g.traverse((o) => { if (o.isMesh && !o.userData.rim && o.userData.baseMat !== M.eye && o.userData.baseMat !== M.core) o.material = flashMat; });
+        }
+        if (e.flash <= 0) {
+          e._flashOn = false;
+          e.g.traverse((o) => { if (o.isMesh && !o.userData.rim) o.material = o.userData.baseMat; });
+        }
+      }
       if (e.glowSprite) e.glowSprite.material.opacity = 0.7 + Math.sin(e.t * (e.boss ? 5 : 7)) * 0.25;
       if (Math.random() < dt * 0.06) this.audio && this.audio.enemyVoice(e.boss ? 'boss' : e.type, 'idle', e.pos);
     }
-    const lit = this.list.filter((e) => e.alive && e.lamp).sort((a, b) => a.pos.distanceToSquared(pp) - b.pos.distanceToSquared(pp));
+    const lit = this._lit || (this._lit = []);
+    lit.length = 0;
+    for (const e of this.list) if (e.alive && e.lamp) lit.push(e);
     const cap = this.lightCap || 6;
-    lit.forEach((e, i) => { e.lamp.intensity = i < cap ? (e.boss ? 5.5 : 2.4) : 0; });
+    if (lit.length > cap) lit.sort((a, b) => a.pos.distanceToSquared(pp) - b.pos.distanceToSquared(pp));
+    for (let i = 0; i < lit.length; i++) lit[i].lamp.intensity = i < cap ? (lit[i].boss ? 5.5 : 2.4) : 0;
     // 清除尸体
     for (let i = this.list.length - 1; i >= 0; i--) {
       const e = this.list[i];
