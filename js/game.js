@@ -17,12 +17,12 @@ import { damp, fmtTime } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const QUAL = {
-  low: { pr: 0.75, shadow: 0, refl: 0, post: false, rain: 1600, lod: 16 },
-  medium: { pr: 1, shadow: 1024, refl: 0.35, post: true, rain: 3000, lod: 26 },
-  high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200, lod: 36 },
-  ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 60 },
+  low: { pr: 0.75, shadow: 0, refl: 0, post: false, rain: 1600, lod: 8 },
+  medium: { pr: 1, shadow: 1024, refl: 0.35, post: true, rain: 3000, lod: 12 },
+  high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200, lod: 14 },
+  ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 18 },
   // 手机：限分辨率（自适应 0.8–1.25）、无阴影无反射、轻后期（保留 ACES/雾/锐化，去 SSAO 与泛光）、少雨、近 LOD
-  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 15 }
+  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 8 }
 };
 // 仅用于「首次打开时预选手机画质与低模枪」的资源判断，绝不用来关闭指针锁定
 const MOBILE_UA = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent || '');
@@ -121,10 +121,37 @@ export class Game {
     this._ui();
     this.mode = 'title';
     this._titleCam(0);
+    await this._warmEnemyPrograms();
     this.clock = new THREE.Clock();
     this.time = 0; this.fpsAcc = 0; this.fpsN = 0;
     this.renderer.setAnimationLoop(() => this._frame());
     this.ready = true;
+  }
+
+  // 点光源数量是着色器关键字。看守和后来刷出的巡夜者如果各 new 一盏灯，整批材质会在走路中途重编译。
+  // 灯池在加载时就固定好，这里再把三种敌人和看守的材质编译进缓存，开打后不再出新程序。
+  async _warmEnemyPrograms() {
+    const cam = this.camera;
+    const pos = cam.position.clone();
+    const quat = cam.quaternion.clone();
+    cam.position.set(SPAWN.x, 1.65, 72);
+    cam.lookAt(SPAWN.x, 1.2, 66);
+    cam.updateMatrixWorld(true);
+    const dummy = { position: { x: SPAWN.x, y: 0, z: 72 }, yaw: 0 };
+    const audio = this.enemies.audio;
+    this.enemies.audio = null;
+    for (const type of ['boss', 'hound', 'gull', 'warden']) {
+      const e = this.enemies.spawn(type, dummy, { x: SPAWN.x, z: 66 });
+      e.g.traverse((o) => { o.frustumCulled = false; });
+      e.g.updateMatrixWorld(true);
+    }
+    this.enemies.audio = audio;
+    await this.renderer.compileAsync(this.scene, cam);
+    this.enemies.clear();
+    cam.position.copy(pos);
+    cam.quaternion.copy(quat);
+    cam.updateMatrixWorld(true);
+    this._titleCam(0);
   }
 
   _lights() {
@@ -172,8 +199,15 @@ export class Game {
     this.refl.setEnabled(c.refl > 0);
     this.post.enabled = c.post;
     this.post.applyQuality(q === 'ultra' ? 'high' : q === 'medium' ? 'medium' : mob ? 'low' : q);
-    if (this.hemi) { this.baseHemi = mob ? 1.12 : 0.92; this.hemi.intensity = this.baseHemi; }
-    if (this.enemies) this.enemies.lightCap = mob ? 3 : 6;
+    if (this.hemi) {
+      // 电脑高画质抬一点环境补光，影子还在，巷道不再被压成一片黑。手机档维持原来的 1.12。
+      this.baseHemi = mob ? 1.12 : q === 'low' ? 1.0 : 1.06;
+      this.hemi.intensity = this.baseHemi;
+    }
+    if (this.enemies) {
+      this.enemies.lightCap = mob ? 3 : 6;
+      if (this.enemies._ensurePool) this.enemies._ensurePool();
+    }
     // 手机：夜雾在 150 米外已近全浓，远裁剪收到 170 米省掉看不见的远景；天空球随之缩小（只按方向着色）
     this.camera.far = mob ? 170 : 1200; this.camera.updateProjectionMatrix();
     if (this.sky) this.sky.mesh.scale.setScalar(mob ? 0.17 : 1);
@@ -189,13 +223,13 @@ export class Game {
       this.post.uComp.contrast.value = 1.12;
       this.post.uComp.saturation.value = 0.86;
       this.post.uComp.vignette.value = 0.28;
-      this.post.uComp.grain.value = q === 'low' || mob ? 0.016 : 0.034;
+      this.post.uComp.grain.value = mob || q === 'low' ? 0.016 : 0.02;
       this.post.uComp.sharpen.value = q === 'low' ? 0.22 : mob ? 0.32 : 0.36;
       this.post.uComp.shafts.value = q === 'low' || mob ? 0 : 0.22;
-      // 手机小屏略提亮，夜里仍看得清路
-      this.baseExposure = mob ? 1.52 : 1.34;
+      // 手机维持 1.52。电脑高/超高提到 1.48，接近手机的可读夜景，阴影和 SSAO 仍开着。
+      this.baseExposure = mob ? 1.52 : 1.48;
       this.post.uComp.exposure.value = this.baseExposure;
-      this.post.uComp.vignette.value = mob ? 0.2 : 0.28;
+      this.post.uComp.vignette.value = mob ? 0.2 : 0.22;
     }
     this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined) o.material.needsUpdate = true; });
     this._resize();
@@ -204,11 +238,14 @@ export class Game {
   // 手机档自适应分辨率：帧率低于 27 降一档，高于 45 回升（0.8–1.25）
   _adaptPR() {
     if (this.quality !== 'mobile' || !this.perf.fps) return;
+    if (this.time < (this._prCool || 0)) return;
     const cap = Math.min(devicePixelRatio || 1, QUAL.mobile.pr);
     let pr = this.mobilePR || cap;
-    if (this.perf.fps < 27 && pr > 0.8) pr = Math.max(0.8, pr - 0.15);
-    else if (this.perf.fps > 45 && pr < cap) pr = Math.min(cap, pr + 0.1);
+    if (this.perf.fps < 24 && pr > 0.8) pr = Math.max(0.8, +(pr - 0.15).toFixed(2));
+    else if (this.perf.fps > 50 && pr < cap - 0.05) pr = Math.min(cap, +(pr + 0.1).toFixed(2));
     else return;
+    if (Math.abs(pr - (this.mobilePR || cap)) < 0.04) return;
+    this._prCool = this.time + 8;
     this.mobilePR = pr; this.renderer.setPixelRatio(pr); this._resize();
   }
   _resize() {
@@ -776,19 +813,22 @@ export class Game {
     if (this.sky) this._storm(dt);
     this.sky.update(this.time, this.camera.position);
     this.rain.update(dt, this.camera, this.world);
-    // 阴影相机跟随
+    // 阴影相机按 4 米对齐，走路时不再每帧重摆整张阴影图
     const cp = this.camera.position;
-    this.sun.target.position.set(cp.x, 0, cp.z); this.sun.position.set(cp.x + this.sunDir.x * 150, this.sunDir.y * 150 + 20, cp.z + this.sunDir.z * 150);
+    const gx = Math.round(cp.x / 4) * 4, gz = Math.round(cp.z / 4) * 4;
+    this.sun.target.position.set(gx, 0, gz);
+    this.sun.position.set(gx + this.sunDir.x * 150, this.sunDir.y * 150 + 20, gz + this.sunDir.z * 150);
     const adsEase = this.weapon.ads * this.weapon.ads * (3 - 2 * this.weapon.ads);
     this.camera.fov = damp(this.camera.fov, this.fov * (1 - adsEase * this.adsFovCut) + (this.player.sprint ? 3 : 0), 8, dt);
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const fwd = this._fwd || (this._fwd = new THREE.Vector3());
+    fwd.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
     this.audio.update(dt, { mode: this.mode, enemies: this.enemies.alive(), phase: this.phase || 0, hp: this.player.hp, cam: this.camera, fwd });
     // 渲染（先画瞄准镜内放大画面，再画主视角；镜外不做全黑遮幅）
     if ((playing || this.mode === 'pause') && this.weapon.renderScope) this.weapon.renderScope(this.renderer, this.scene, this.camera);
     this.refl.update(this.scene, this.camera);
-    if (this.post.enabled) this.post.updateSun(this.camera, this.sunDir.clone().negate());
+    if (this.post.enabled) this.post.updateSun(this.camera, this._sunAim || (this._sunAim = this.sunDir.clone().negate()));
     const gun = playing || this.mode === 'pause' ? this.weapon.scene : null;
     if (this.post.enabled) this.post.render(this.scene, this.camera, gun);
     else { this.renderer.setRenderTarget(null); this.renderer.clear(); this.renderer.render(this.scene, this.camera); if (gun) { this.renderer.clearDepth(); this.renderer.render(gun, this.camera); } }

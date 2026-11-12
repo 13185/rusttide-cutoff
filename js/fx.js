@@ -29,6 +29,10 @@ export class FX {
     this.tracerMat = new THREE.MeshBasicMaterial({ color: 0xffd08a, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
     this.tracerGeo = new THREE.CylinderGeometry(0.012, 0.012, 1, 4, 1, true); this.tracerGeo.rotateX(Math.PI / 2);
     this.flashes = [];
+    // 一盏常驻枪口灯。每次 new PointLight 都会让整批材质按新的光源数量重编译，走路开枪时画面会卡住。
+    this._muzzle = new THREE.PointLight(0xff9a40, 0, 10, 2);
+    this._muzzle.position.set(0, -40, 0);
+    scene.add(this._muzzle);
     // 烟（普通混合）
     this.smoke = [];
     this.smokeMat = new THREE.SpriteMaterial({ map: glowTex, color: 0x2a2a2a, transparent: true, depthWrite: false, opacity: 0.5 });
@@ -83,8 +87,8 @@ export class FX {
     this.smoke.push({ s, life, t: 0, size });
   }
   light(p, color, intensity, life, dist = 10) {
-    const l = new THREE.PointLight(color, intensity, dist, 2);
-    l.position.copy(p); this.scene.add(l);
+    const l = this._muzzle;
+    l.color.set(color); l.intensity = intensity; l.distance = dist; l.position.copy(p);
     this.flashes.push({ l, life, t: 0, i0: intensity });
   }
   tracer(a, b, color) {
@@ -116,8 +120,8 @@ export class FX {
     }
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i]; f.t += dt;
+      if (f.t > f.life) { if (f.l === this._muzzle) { f.l.intensity = 0; f.l.position.set(0, -40, 0); } this.flashes.splice(i, 1); continue; }
       f.l.intensity = f.i0 * Math.max(0, 1 - f.t / f.life);
-      if (f.t > f.life) { this.scene.remove(f.l); f.l.dispose(); this.flashes.splice(i, 1); }
     }
     for (let i = this.debris.length - 1; i >= 0; i--) {
       const d = this.debris[i]; d.t += dt;
@@ -153,42 +157,68 @@ export class FX {
   }
 }
 
-// 雨：相机周围循环的细长雨丝
+// 雨：种子写死在顶点里，位置在着色器里随时间走。不再每帧改几千个顶点、也不再整缓冲上传。
+const RAIN_VS = `
+attribute float seedX;
+attribute float seedY;
+attribute float seedZ;
+attribute float tip;
+uniform float time;
+uniform vec3 camPos;
+varying float vDist;
+void main() {
+  float y = mod(seedY - time * 16.0, 22.0);
+  float x = mod(seedX + time * 2.2 - camPos.x, 40.0);
+  float z = mod(seedZ - camPos.z, 40.0);
+  x = x - 20.0;
+  z = z - 20.0;
+  vec3 p = vec3(camPos.x + x, camPos.y - 6.0 + y, camPos.z + z);
+  if (tip > 0.5) p += vec3(-0.077, 0.55, 0.0);
+  if (p.x > 50.2 && p.x < 72.15 && p.z > -16.95 && p.z < 16.95 && p.y > -0.2 && p.y < 11.15) p.y = -40.0;
+  vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+  vDist = -mvPosition.z;
+  gl_Position = projectionMatrix * mvPosition;
+}`;
+const RAIN_FS = `
+varying float vDist;
+void main() {
+  float fog = clamp(exp(-vDist * 0.0145), 0.0, 1.0);
+  gl_FragColor = vec4(0.722, 0.737, 0.761, 0.22 * fog);
+}`;
 export class Rain {
   constructor(scene, count = 5000) {
     this.count = count;
     const g = new THREE.BufferGeometry();
-    const pos = new Float32Array(count * 6);
-    this.seed = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) { this.seed[i * 3] = Math.random() * 40 - 20; this.seed[i * 3 + 1] = Math.random() * 22; this.seed[i * 3 + 2] = Math.random() * 40 - 20; }
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.geo = g; this.pos = pos;
-    this.mesh = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xb8bcc2, transparent: true, opacity: 0.22, depthWrite: false, fog: true }));
+    const sx = new Float32Array(count * 2), sy = new Float32Array(count * 2), sz = new Float32Array(count * 2), tip = new Float32Array(count * 2);
+    for (let i = 0; i < count; i++) {
+      const x = Math.random() * 40 - 20, y = Math.random() * 22, z = Math.random() * 40 - 20;
+      sx[i * 2] = sx[i * 2 + 1] = x;
+      sy[i * 2] = sy[i * 2 + 1] = y;
+      sz[i * 2] = sz[i * 2 + 1] = z;
+      tip[i * 2] = 0; tip[i * 2 + 1] = 1;
+    }
+    g.setAttribute('seedX', new THREE.BufferAttribute(sx, 1));
+    g.setAttribute('seedY', new THREE.BufferAttribute(sy, 1));
+    g.setAttribute('seedZ', new THREE.BufferAttribute(sz, 1));
+    g.setAttribute('tip', new THREE.BufferAttribute(tip, 1));
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 6), 3));
+    this.geo = g;
+    this.timeU = { value: 0 };
+    this.camU = { value: new THREE.Vector3() };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { time: this.timeU, camPos: this.camU },
+      vertexShader: RAIN_VS, fragmentShader: RAIN_FS,
+      transparent: true, depthWrite: false, fog: false
+    });
+    this.mesh = new THREE.LineSegments(g, mat);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
     this.t = 0;
   }
   setCount(n) { this.active = Math.min(this.count, n); this.geo.setDrawRange(0, this.active * 2); }
-  update(dt, cam, world) {
+  update(dt, cam) {
     this.t += dt;
-    const n = this.active ?? this.count;
-    const fall = 16, wind = 2.2;
-    for (let i = 0; i < n; i++) {
-      let y = (this.seed[i * 3 + 1] - this.t * fall) % 22; if (y < 0) y += 22;
-      let x = (this.seed[i * 3] + this.t * wind - cam.position.x) % 40; if (x < 0) x += 40; x -= 20;
-      let z = (this.seed[i * 3 + 2] - cam.position.z) % 40; if (z < 0) z += 40; z -= 20;
-      const X = cam.position.x + x, Y = cam.position.y - 6 + y, Z = cam.position.z + z;
-      const o = i * 6;
-      // 可进入的货栈内部不下雨（屋檐下直接藏到地坪以下）
-      if (world && world.isIndoors(X, Y, Z)) {
-        this.pos[o] = this.pos[o + 3] = X;
-        this.pos[o + 1] = this.pos[o + 4] = -40;
-        this.pos[o + 2] = this.pos[o + 5] = Z;
-        continue;
-      }
-      this.pos[o] = X; this.pos[o + 1] = Y; this.pos[o + 2] = Z;
-      this.pos[o + 3] = X - wind * 0.035; this.pos[o + 4] = Y + 0.55; this.pos[o + 5] = Z;
-    }
-    this.geo.attributes.position.needsUpdate = true;
+    this.timeU.value = this.t;
+    this.camU.value.copy(cam.position);
   }
 }

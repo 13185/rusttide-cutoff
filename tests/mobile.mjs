@@ -48,7 +48,12 @@ async function mobileRun(name, dev, shots) {
   let p0 = s.pos;
   await T('touchStart', [{ x: sx, y: sy }]); await page.waitForTimeout(50);
   await T('touchMove', [{ x: sx, y: sy - R * 0.55 }]);
-  await page.waitForTimeout(1600);
+  await page.waitForFunction((p0) => {
+    const g = window.__game;
+    if (g.mode === 'play') g._step(0.05);
+    const p = g.player.position;
+    return Math.hypot(p.x - p0.x, p.z - p0.z) > 0.55;
+  }, p0, { timeout: 8000 }).catch(() => {});
   s = await st();
   const walkD = Math.hypot(s.pos.x - p0.x, s.pos.z - p0.z);
   ok(walkD > 0.5 && !s.sprint, name + ': joystick half push walks ' + walkD.toFixed(2) + ' m, no sprint');
@@ -111,15 +116,20 @@ async function mobileRun(name, dev, shots) {
   s = await st(); ok(s.weapon === 'shotgun', name + ': swap button -> ' + s.weapon);
   await tap('#tSwap');
   await page.waitForFunction(() => window.__rt.state().weapon === 'rifle', null, { timeout: 8000 }).catch(() => {});
-  // 手电：干净点按切换；从别处滑过不触发；按下拖走不触发
-  await tap('#tFlash'); await page.waitForTimeout(200);
+  // 手电：干净点按切换；从别处滑过不触发；按下拖走不触发。
+  // 先停掉渲染循环，避免软件光栅这一帧把点按的两个事件拉开，1.5 秒阈值误判成长按。
+  await page.evaluate(() => window.__game.renderer.setAnimationLoop(null));
+  await tap('#tFlash');
+  await page.evaluate(() => { const g = window.__game; if (g.mode === 'play' && !g.flashOn) g._step(0.05); });
   s = await st(); ok(s.flashlight === true, name + ': flashlight tap on');
   const flc = await center('#tFlash');
-  await T('touchStart', [{ x: flc.x + 60, y: flc.y + 40 }]); await T('touchMove', [flc]); await T('touchMove', [{ x: flc.x - 20, y: flc.y }]); await T('touchEnd', []); await page.waitForTimeout(150);
-  await T('touchStart', [flc]); await T('touchMove', [{ x: flc.x + 30, y: flc.y + 40 }]); await T('touchMove', [{ x: flc.x + 60, y: flc.y + 70 }]); await T('touchEnd', []); await page.waitForTimeout(150);
+  await T('touchStart', [{ x: flc.x + 60, y: flc.y + 40 }]); await T('touchMove', [flc]); await T('touchMove', [{ x: flc.x - 20, y: flc.y }]); await T('touchEnd', []); await page.waitForTimeout(80);
+  await T('touchStart', [flc]); await T('touchMove', [{ x: flc.x + 30, y: flc.y + 40 }]); await T('touchMove', [{ x: flc.x + 60, y: flc.y + 70 }]); await T('touchEnd', []); await page.waitForTimeout(80);
   s = await st(); ok(s.flashlight === true, name + ': slide-over / drag-off does not toggle flashlight');
-  await tap('#tFlash'); await page.waitForTimeout(150);
+  await tap('#tFlash');
+  await page.evaluate(() => { const g = window.__game; if (g.mode === 'play' && g.flashOn) g._step(0.05); });
   s = await st(); ok(s.flashlight === false, name + ': flashlight tap off');
+  await page.evaluate(() => { const g = window.__game; g.renderer.setAnimationLoop(() => g._frame()); });
   // 蹲、跳、雷
   await tap('#tCrouch'); await page.waitForTimeout(150); s = await st(); ok(s.crouch, name + ': crouch toggle on');
   await tap('#tCrouch'); await page.waitForTimeout(150); s = await st(); ok(!s.crouch, name + ': crouch toggle off');

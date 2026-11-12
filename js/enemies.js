@@ -103,7 +103,24 @@ export class Enemies {
     this.onKill = null;
     this.nav = null; this.pathBudget = 0; this.navStats = { paths: 0, stuck: 0, unstuck: 0 };
     this.flankSide = 1;
+    this.lightCap = 6;
+    this._pool = [];
     this._v = new THREE.Vector3(); this._w = new THREE.Vector3();
+    this._ensurePool();
+  }
+  // 灯的盏数一旦变化，场景里每一种材质都要重编译。池子一开始就按上限摆好，刷怪只改位置和亮度。
+  _ensurePool() {
+    const n = this.lightCap || 6;
+    while (this._pool.length < n) {
+      const L = new THREE.PointLight(0xff4a22, 0, 7, 2);
+      L.position.set(0, -30, 0);
+      this.scene.add(L);
+      this._pool.push(L);
+    }
+    while (this._pool.length > n) {
+      const L = this._pool.pop();
+      this.scene.remove(L);
+    }
   }
   clear() {
     for (const e of this.list) this.scene.remove(e.g);
@@ -141,7 +158,12 @@ export class Enemies {
     e.yaw = 0;
     e.g.position.copy(e.pos);
     this._glow(e);
-    e.g.traverse((o) => { if (o.isMesh) o.userData.baseMat = o.material; });
+    e.g.traverse((o) => {
+      if (o.isMesh) {
+        o.userData.baseMat = o.material;
+        o.castShadow = false;
+      }
+    });
     this.scene.add(e.g);
     this.list.push(e);
     this.audio && this.audio.enemyVoice(boss ? 'boss' : type, 'spawn', e.pos);
@@ -151,7 +173,6 @@ export class Enemies {
   // 夜里靠自发光和一圈外轮廓认人；点光源只留给最近的几只，避免手机档灯数爆炸
   _glow(e) {
     const col = new THREE.Color(e.def.glow || 0xff4a22);
-    const anchor = e.eye || e.g;
     if (this.fx && this.fx.glowTex && e.eye) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.fx.glowTex, color: col, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.9 }));
       s.scale.setScalar(e.boss ? 2.4 : 0.85);
@@ -159,9 +180,6 @@ export class Enemies {
       e.glowSprite = s;
     }
     addRim(e.body || e.torso, col);
-    const lamp = new THREE.PointLight(col, 0, e.boss ? 16 : 7, 2);
-    anchor.add(lamp);
-    e.lamp = lamp;
   }
 
   // 射线命中：返回最近命中 {e, t, weak, point}
@@ -211,7 +229,7 @@ export class Enemies {
 
   update(dt, player, t) {
     const pp = player.position;
-    this.pathBudget = 4;
+    this.pathBudget = 1;
     const eyeP = this._w.set(pp.x, pp.y + 1.5, pp.z);
     for (const e of this.list) {
       e.t += dt;
@@ -233,14 +251,35 @@ export class Enemies {
       else this._warden(e, dt, player, dist, dx, dz, dyaw, eyeP);
       e.g.position.copy(e.pos); e.g.rotation.y = e.yaw;
       // 受击闪白
-      if (e.flash > 0) { e.flash -= dt; e.g.traverse((o) => { if (o.isMesh && !o.userData.rim && o.userData.baseMat !== M.eye && o.userData.baseMat !== M.core) o.material = flashMat; }); }
-      else e.g.traverse((o) => { if (o.isMesh && !o.userData.rim) o.material = o.userData.baseMat; });
+      if (e.flash > 0) {
+        e.flash -= dt;
+        if (!e._flashOn) {
+          e._flashOn = true;
+          e.g.traverse((o) => { if (o.isMesh && !o.userData.rim && o.userData.baseMat !== M.eye && o.userData.baseMat !== M.core) o.material = flashMat; });
+        }
+        if (e.flash <= 0) {
+          e._flashOn = false;
+          e.g.traverse((o) => { if (o.isMesh && !o.userData.rim) o.material = o.userData.baseMat; });
+        }
+      }
       if (e.glowSprite) e.glowSprite.material.opacity = 0.7 + Math.sin(e.t * (e.boss ? 5 : 7)) * 0.25;
       if (Math.random() < dt * 0.06) this.audio && this.audio.enemyVoice(e.boss ? 'boss' : e.type, 'idle', e.pos);
     }
-    const lit = this.list.filter((e) => e.alive && e.lamp).sort((a, b) => a.pos.distanceToSquared(pp) - b.pos.distanceToSquared(pp));
-    const cap = this.lightCap || 6;
-    lit.forEach((e, i) => { e.lamp.intensity = i < cap ? (e.boss ? 5.5 : 2.4) : 0; });
+    const lit = this._lit || (this._lit = []);
+    lit.length = 0;
+    for (const e of this.list) if (e.alive) lit.push(e);
+    lit.sort((a, b) => a.pos.distanceToSquared(pp) - b.pos.distanceToSquared(pp));
+    const pool = this._pool;
+    for (let i = 0; i < pool.length; i++) {
+      const L = pool[i];
+      const e = lit[i];
+      if (!e) { L.intensity = 0; L.position.set(0, -30, 0); continue; }
+      if (e.eye) { e.g.updateMatrixWorld(true); e.eye.getWorldPosition(L.position); }
+      else L.position.set(e.pos.x, e.pos.y + 1.4, e.pos.z);
+      L.color.set(e.def.glow || 0xff4a22);
+      L.intensity = e.boss ? 5.5 : 2.4;
+      L.distance = e.boss ? 16 : 7;
+    }
     // 清除尸体
     for (let i = this.list.length - 1; i >= 0; i--) {
       const e = this.list[i];
