@@ -147,7 +147,26 @@ export class Game {
       e.g.updateMatrixWorld(true);
     }
     this.enemies.audio = audio;
+    // 侧面和身后的材质如果等转到才编译，第一次转头会卡一下，接着把积下来的视角一次性甩出去。
+    const hiddenCull = [];
+    const reveal = (root) => root.traverse((o) => {
+      if (o.isMesh && o.frustumCulled) { hiddenCull.push(o); o.frustumCulled = false; }
+    });
+    reveal(this.scene);
+    if (this.weapon && this.weapon.scene) reveal(this.weapon.scene);
     await this.renderer.compileAsync(this.scene, cam);
+    if (this.weapon && this.weapon.scene) await this.renderer.compileAsync(this.weapon.scene, cam);
+    // compile 只按当前画布的色彩空间出程序。正式画面画进线性的后期目标，没进过画面的那一档要等第一次转过去才编。
+    if (this.post && this.post.enabled) {
+      this.post.updateSun(cam, this.sunDir.clone().negate());
+      this.post.render(this.scene, cam, this.weapon ? this.weapon.scene : null);
+    } else {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, cam);
+    }
+    const gl = this.renderer.getContext();
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    hiddenCull.forEach((o) => { o.frustumCulled = true; });
     this.enemies.clear();
     cam.position.copy(pos);
     cam.quaternion.copy(quat);
