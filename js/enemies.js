@@ -175,7 +175,7 @@ export class Enemies {
     const col = new THREE.Color(e.def.glow || 0xff4a22);
     if (this.fx && this.fx.glowTex && e.eye) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.fx.glowTex, color: col, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.9 }));
-      s.scale.setScalar(e.boss ? 3.1 : 1.15);
+      s.scale.setScalar(e.boss ? 3.6 : 1.85);
       e.eye.add(s);
       e.glowSprite = s;
     }
@@ -262,7 +262,7 @@ export class Enemies {
           e.g.traverse((o) => { if (o.isMesh && !o.userData.rim) o.material = o.userData.baseMat; });
         }
       }
-      if (e.glowSprite) e.glowSprite.material.opacity = 0.9 + Math.sin(e.t * (e.boss ? 5 : 7)) * 0.1;
+      if (e.glowSprite) e.glowSprite.material.opacity = 1;
       if (Math.random() < dt * 0.06) this.audio && this.audio.enemyVoice(e.boss ? 'boss' : e.type, 'idle', e.pos);
     }
     const lit = this._lit || (this._lit = []);

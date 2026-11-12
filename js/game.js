@@ -22,7 +22,7 @@ const QUAL = {
   high: { pr: 1.25, shadow: 2048, refl: 0.5, post: true, rain: 4200, lod: 14 },
   ultra: { pr: 2, shadow: 4096, refl: 0.65, post: true, rain: 5000, lod: 18 },
   // 手机：限分辨率（自适应 0.8–1.25）、无阴影无反射、轻后期（保留 ACES/雾/锐化，去 SSAO 与泛光）、少雨、近 LOD
-  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 10 }
+  mobile: { pr: 1.25, shadow: 0, refl: 0, post: true, rain: 900, lod: 8 }
 };
 // 仅用于「首次打开时预选手机画质与低模枪」的资源判断，绝不用来关闭指针锁定
 const MOBILE_UA = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent || '');
