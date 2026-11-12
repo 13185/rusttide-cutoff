@@ -139,6 +139,26 @@ export class Audio {
     if (weak) this._tone(out, t + 0.04, 'sine', 2800, 2600, 0.08, 0.1);
   }
   impact(p) { if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._pos(p, 0.5, 0.2); this._noise(out, t, 0.06, 'bandpass', 3000 + Math.random() * 2000, 2, 0.4); if (Math.random() < 0.3) this._tone(out, t, 'sine', 3000 + Math.random() * 2000, 1200, 0.18, 0.06); }
+  // 闪电：近处是一声脆裂，远处拖成低频滚动。delay 按距离 / 声速估
+  thunder(delay = 0.3) {
+    if (!this.ok()) return;
+    const t = this.ctx.currentTime + Math.max(0, delay);
+    const out = this._out(0.9, 0);
+    this._noise(out, t, 0.18, 'highpass', 1800, 0.6, 0.7);
+    this._noise(out, t + 0.05, 1.4, 'lowpass', 420, 0.55, 0.85, 0.01, this.brown);
+    this._tone(out, t + 0.08, 'sine', 70, 32, 1.3, 0.7);
+    this._noise(out, t + 0.45, 0.9, 'lowpass', 240, 0.4, 0.4, 0.02, this.brown);
+  }
+  // 离岸后船舱后方的三下敲击
+  knocks() {
+    if (!this.ok()) return;
+    const t = this.ctx.currentTime;
+    const out = this._out(0.55, 0);
+    for (let i = 0; i < 3; i++) {
+      this._noise(out, t + i * 0.55, 0.08, 'lowpass', 500, 2, 0.45);
+      this._tone(out, t + i * 0.55, 'sine', 90, 40, 0.16, 0.35);
+    }
+  }
   explode(p, size = 1) {
     if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._pos(p, 1.2 * size, 0.8);
     this._noise(out, t, 0.9 * size, 'lowpass', 900, 0.7, 1.0, 0.003, this.brown);
@@ -148,12 +168,16 @@ export class Audio {
   }
   // —— 敌人 ——
   enemyShot(type, p) {
-    if (!this.ok()) return; const t = this.ctx.currentTime; const out = this._pos(p, type === 'warden' ? 1.0 : 0.7, 0.5);
+    if (!this.ok()) return;
+    if (type === 'boss') type = 'warden';
+    const t = this.ctx.currentTime; const out = this._pos(p, type === 'warden' ? 1.0 : 0.7, 0.5);
     if (type === 'warden') { this._noise(out, t, 0.18, 'bandpass', 900, 0.8, 0.8); this._tone(out, t, 'sawtooth', 380, 90, 0.15, 0.25); this._tone(out, t, 'sine', 90, 40, 0.18, 0.6); }
     else { this._tone(out, t, 'sawtooth', 1600, 300, 0.14, 0.2); this._noise(out, t, 0.08, 'highpass', 3000, 1, 0.2); }
   }
   enemyVoice(type, verb, p) {
-    if (!this.ok()) return; const t = this.ctx.currentTime;
+    if (!this.ok()) return;
+    if (type === 'boss') type = 'warden';
+    const t = this.ctx.currentTime;
     if (type === 'hound') {
       const out = this._pos(p, verb === 'death' ? 0.6 : 0.55, 0.3);
       if (verb === 'attack') { this._tone(out, t, 'sawtooth', 180, 520, 0.25, 0.22); this._noise(out, t, 0.25, 'bandpass', 1200, 3, 0.2); }

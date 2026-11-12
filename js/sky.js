@@ -19,6 +19,7 @@ uniform vec3 cloudDark;
 uniform vec3 cloudLit;
 uniform float time;
 uniform float cover;
+uniform float uFlash;
 float h(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
 float n2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
@@ -45,6 +46,7 @@ void main(){
   }
   // 地平线以下：雾色
   col = mix(col, horizon * 0.75, smoothstep(0.0, -0.12, d.y));
+  col += vec3(0.72, 0.8, 0.92) * uFlash;
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -58,7 +60,8 @@ export class Sky {
       cloudDark: { value: new THREE.Color('#1a222c') },
       cloudLit: { value: new THREE.Color('#3a4654') },
       time: { value: 0 },
-      cover: { value: 0.78 }
+      cover: { value: 0.78 },
+      uFlash: { value: 0 }
     };
     const mat = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, uniforms: this.uniforms, side: THREE.BackSide, depthWrite: false, fog: false });
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), mat);

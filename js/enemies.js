@@ -5,9 +5,11 @@ import { A, pbr, instance } from './assets.js';
 
 
 export const TYPES = {
-  hound: { name: '机械猎犬', hp: 70, speed: 7.2, weakMul: 2.5, score: 100 },
-  gull: { name: '机械飞鸥', hp: 42, speed: 9, weakMul: 2.5, score: 120 },
-  warden: { name: '机械守卫', hp: 460, speed: 2.3, weakMul: 3, score: 400 }
+  hound: { name: '巡夜者·猎犬', hp: 70, speed: 7.2, weakMul: 2.5, score: 100, glow: 0xff4a22 },
+  gull: { name: '巡夜者·飞鸥', hp: 42, speed: 9, weakMul: 2.5, score: 120, glow: 0x3ad6c8 },
+  warden: { name: '巡夜者·守卫', hp: 460, speed: 2.3, weakMul: 3, score: 400, glow: 0xff5a28 },
+  // 第一关三只看守：体型更大、血更厚，弱点仍吃枪，但要打掉将近两匣步枪
+  boss: { name: '巡夜者', hp: 1680, speed: 2.15, weakMul: 2.2, score: 800, glow: 0xff2418 }
 };
 
 
@@ -21,8 +23,8 @@ function mats() {
     joint: pbr('steel', { color: 0x666666 }),
     piston: new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.18, metalness: 1 }),
     cable: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.2 }),
-    eye: new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xff5a28, emissiveIntensity: 6, roughness: 0.3 }),
-    core: new THREE.MeshStandardMaterial({ color: 0x221000, emissive: 0xffb347, emissiveIntensity: 5, roughness: 0.3 })
+    eye: new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xff3a18, emissiveIntensity: 8, roughness: 0.25 }),
+    core: new THREE.MeshStandardMaterial({ color: 0x041816, emissive: 0x3ad6c8, emissiveIntensity: 7, roughness: 0.25 })
   };
   M.byName = { M_en_hull: M.hull, M_en_plate: M.plate, M_en_hazard: M.hazard, M_en_joint: M.joint, M_en_piston: M.piston, M_en_cable: M.cable, M_weak_red: M.eye, M_weak_amber: M.core };
   return M;
@@ -73,7 +75,18 @@ function buildWarden() {
   ] };
 }
 
-const BUILD = { hound: buildHound, gull: buildGull, warden: buildWarden };
+const BUILD = { hound: buildHound, gull: buildGull, warden: buildWarden, boss: buildWarden };
+
+function addRim(mesh, color) {
+  if (!mesh || !mesh.isMesh) return;
+  const shell = new THREE.Mesh(mesh.geometry, new THREE.MeshBasicMaterial({
+    color, side: THREE.BackSide, transparent: true, opacity: 0.45, depthWrite: false
+  }));
+  shell.scale.setScalar(1.045);
+  shell.renderOrder = 1;
+  shell.userData.rim = true;
+  mesh.add(shell);
+}
 
 // 刷新点：港区各处
 const SPAWNS = [
@@ -100,31 +113,55 @@ export class Enemies {
   alive() { return this.list.filter((e) => e.alive).length; }
   countType(t) { return this.list.filter((e) => e.alive && e.type === t).length; }
 
-  pickSpawn(player, minD = 30) {
+  pickSpawn(player, minD = 22) {
     const pp = player.position;
-    const cands = SPAWNS.map(([x, z]) => ({ x, z, d: Math.hypot(x - pp.x, z - pp.z) })).filter((c) => c.d > minD && c.d < 95);
-    if (!cands.length) return { x: SPAWNS[0][0], z: SPAWNS[0][1] };
-    cands.sort((a, b) => a.d - b.d);
-    const pool = cands.slice(0, Math.max(3, Math.ceil(cands.length / 2)));
-    return pool[Math.floor(Math.random() * pool.length)];
+    const fx = -Math.sin(player.yaw || 0), fz = -Math.cos(player.yaw || 0);
+    const cands = SPAWNS.map(([x, z]) => {
+      const dx = x - pp.x, dz = z - pp.z, d = Math.hypot(dx, dz) || 1;
+      return { x, z, d, front: (dx * fx + dz * fz) / d };
+    }).filter((c) => c.d > minD && c.d < 90 && c.front < 0.25);
+    const pool = cands.length ? cands : SPAWNS.map(([x, z]) => ({ x, z, d: Math.hypot(x - pp.x, z - pp.z) })).filter((c) => c.d > 18);
+    if (!pool.length) return { x: pp.x - fx * 28, z: pp.z - fz * 28 };
+    pool.sort((a, b) => a.d - b.d);
+    const near = pool.slice(0, Math.max(3, Math.ceil(pool.length / 2)));
+    return near[Math.floor(Math.random() * near.length)];
   }
 
-  spawn(type, player, at) {
-    const def = TYPES[type];
-    const p = at || this.pickSpawn(player, type === 'gull' ? 26 : 30);
-    const b = BUILD[type]();
-    const e = { type, def, ...b, hp: def.hp, maxHp: def.hp, alive: true, t: Math.random() * 10, cool: 1.5 + Math.random() * 2, state: 'hunt', dash: 0, flash: 0, burst: 0, burstT: 0, orbit: Math.random() * 6.28, dying: 0 };
+  spawn(type, player, at, extra = {}) {
+    const def = TYPES[type] || TYPES.hound;
+    const boss = type === 'boss' || extra.boss;
+    const p = at || this.pickSpawn(player, type === 'gull' ? 24 : 22);
+    const b = BUILD[type] ? BUILD[type]() : BUILD.hound();
+    const e = { type, def, ...b, hp: def.hp, maxHp: def.hp, alive: true, t: Math.random() * 10, cool: 1.2 + Math.random() * 1.6, state: 'hunt', dash: 0, flash: 0, burst: 0, burstT: 0, orbit: Math.random() * 6.28, dying: 0, boss: !!boss, relay: extra.relay, label: extra.label || def.name, slam: 2 + Math.random() * 3 };
+    if (boss) e.g.scale.setScalar(1.7);
     let sx = p.x, sz = p.z;
     if (this.nav && type !== 'gull') { const k = this.nav.nearest(sx, sz, 2, 16); if (k >= 0) { const c = this.nav.center(k); sx = c.x; sz = c.z; } }
     e.pos = new THREE.Vector3(sx, type === 'gull' ? 12 + Math.random() * 5 : 0, sz);
     e.flank = (this.flankSide = -this.flankSide); e.path = null; e.repath = 0; e.prog = { x: sx, z: sz, t: 0 }; e.stuck = 0; e.mode = 'orbit';
     e.yaw = 0;
     e.g.position.copy(e.pos);
+    this._glow(e);
     e.g.traverse((o) => { if (o.isMesh) o.userData.baseMat = o.material; });
     this.scene.add(e.g);
     this.list.push(e);
-    this.audio && this.audio.enemyVoice(type, 'spawn', e.pos);
+    this.audio && this.audio.enemyVoice(boss ? 'boss' : type, 'spawn', e.pos);
     return e;
+  }
+
+  // 夜里靠自发光和一圈外轮廓认人；点光源只留给最近的几只，避免手机档灯数爆炸
+  _glow(e) {
+    const col = new THREE.Color(e.def.glow || 0xff4a22);
+    const anchor = e.eye || e.g;
+    if (this.fx && this.fx.glowTex && e.eye) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.fx.glowTex, color: col, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.9 }));
+      s.scale.setScalar(e.boss ? 2.4 : 0.85);
+      e.eye.add(s);
+      e.glowSprite = s;
+    }
+    addRim(e.body || e.torso, col);
+    const lamp = new THREE.PointLight(col, 0, e.boss ? 16 : 7, 2);
+    anchor.add(lamp);
+    e.lamp = lamp;
   }
 
   // 射线命中：返回最近命中 {e, t, weak, point}
@@ -140,7 +177,9 @@ export class Enemies {
         const c = this._v;
         if (h.off) c.copy(h.off).applyMatrix4(h.obj.matrixWorld); else h.obj.getWorldPosition(c);
         const ox = o.x - c.x, oy = o.y - c.y, oz = o.z - c.z;
-        const bq = ox * d.x + oy * d.y + oz * d.z; const cq = ox * ox + oy * oy + oz * oz - h.r * h.r;
+        const rad = h.r * (e.g.scale.x || 1);
+        const bq = ox * d.x + oy * d.y + oz * d.z;
+        const cq = ox * ox + oy * oy + oz * oz - rad * rad;
         const disc = bq * bq - cq; if (disc < 0) continue;
         let t = -bq - Math.sqrt(disc);
         if (t <= 0 && -bq + Math.sqrt(disc) > 0) t = 0.05; // 贴脸射击
@@ -194,10 +233,14 @@ export class Enemies {
       else this._warden(e, dt, player, dist, dx, dz, dyaw, eyeP);
       e.g.position.copy(e.pos); e.g.rotation.y = e.yaw;
       // 受击闪白
-      if (e.flash > 0) { e.flash -= dt; e.g.traverse((o) => { if (o.isMesh && o.userData.baseMat !== M.eye && o.userData.baseMat !== M.core) o.material = flashMat; }); }
-      else e.g.traverse((o) => { if (o.isMesh) o.material = o.userData.baseMat; });
-      if (Math.random() < dt * 0.06) this.audio && this.audio.enemyVoice(e.type, 'idle', e.pos);
+      if (e.flash > 0) { e.flash -= dt; e.g.traverse((o) => { if (o.isMesh && !o.userData.rim && o.userData.baseMat !== M.eye && o.userData.baseMat !== M.core) o.material = flashMat; }); }
+      else e.g.traverse((o) => { if (o.isMesh && !o.userData.rim) o.material = o.userData.baseMat; });
+      if (e.glowSprite) e.glowSprite.material.opacity = 0.7 + Math.sin(e.t * (e.boss ? 5 : 7)) * 0.25;
+      if (Math.random() < dt * 0.06) this.audio && this.audio.enemyVoice(e.boss ? 'boss' : e.type, 'idle', e.pos);
     }
+    const lit = this.list.filter((e) => e.alive && e.lamp).sort((a, b) => a.pos.distanceToSquared(pp) - b.pos.distanceToSquared(pp));
+    const cap = this.lightCap || 6;
+    lit.forEach((e, i) => { e.lamp.intensity = i < cap ? (e.boss ? 5.5 : 2.4) : 0; });
     // 清除尸体
     for (let i = this.list.length - 1; i >= 0; i--) {
       const e = this.list[i];
@@ -235,14 +278,14 @@ export class Enemies {
 
   _move(e, dt, vx, vz) {
     const nx = e.pos.x + vx * dt, nz = e.pos.z + vz * dt;
-    const r = e.type === 'warden' ? 0.9 : 0.55;
+    const r = e.boss ? 1.35 : e.type === 'warden' ? 0.9 : 0.55;
     const c = this.world.collide(nx, nz, 0, r, 2);
     e.pos.x = c.x; e.pos.z = Math.max(QUAY_Z + 1, c.z);
     // 敌人之间分离
     for (const o of this.list) {
       if (o === e || !o.alive || o.type === 'gull') continue;
       const ddx = e.pos.x - o.pos.x, ddz = e.pos.z - o.pos.z; const d = Math.hypot(ddx, ddz);
-      const md = (e.type === 'warden' || o.type === 'warden') ? 2.0 : 1.4;
+      const md = (e.boss || o.boss) ? 2.8 : (e.type === 'warden' || o.type === 'warden') ? 2.0 : 1.4;
       if (d > 0.01 && d < md) { e.pos.x += ddx / d * (md - d) * 0.5; e.pos.z += ddz / d * (md - d) * 0.5; }
     }
   }
@@ -383,21 +426,41 @@ export class Enemies {
   _warden(e, dt, player, dist, dx, dz, dyaw, eyeP) {
     const pp = player.position;
     e.muzzle.getWorldPosition(this._v); const muzzle = this._v.clone();
-    const see = dist < 55 && this.world.los(muzzle, eyeP);
+    const see = dist < (e.boss ? 70 : 55) && this.world.los(muzzle, eyeP);
+    // 看守的第二招：短促冲撞，落地一圈冲击
+    if (e.boss) {
+      e.slam = (e.slam || 0) - dt;
+      if ((e.charging || 0) > 0) {
+        e.charging -= dt;
+        this._move(e, dt, dx / dist * 7.5, dz / dist * 7.5);
+        e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * 4);
+        if (e.charging <= 0) {
+          this.fx.ring(e.pos.clone().setY(0.15), 5);
+          if (dist < 4.6) player.hurt(28, e.pos);
+          this.audio && this.audio.enemyShot('boss', e.pos);
+        }
+        e.gait = (e.gait || 0) + dt * 8;
+        return;
+      }
+      if (e.slam <= 0 && dist < 14 && dist > 3) { e.slam = 8; e.charging = 0.55; e.burst = 0; this.audio && this.audio.enemyVoice('boss', 'attack', e.pos); }
+    }
     e.coverT = (e.coverT || 0) - dt;
     if (!e.cover || e.coverT <= 0 || Math.hypot(e.cover.x - pp.x, e.cover.z - pp.z) < 8) { e.cover = this._pickCover(e, pp) || { x: pp.x, z: pp.z }; e.coverT = 6 + Math.random() * 4; }
     let moving = 0;
-    if (dist < 8) { this._move(e, dt, -dx / dist * 1.6, -dz / dist * 1.6); moving = 0.6; }
-    else if (e.burst <= 0) { const dir = this._nav(e, dt, e.cover.x, e.cover.z, e.def.speed, 1.2); if (dir) moving = 1; }
-    e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * 1.6);
-    if (see && e.cool <= 0 && Math.abs(dyaw) < 0.5) { e.burst = 4; e.burstT = 0; e.cool = 3.2 + Math.random() * 1.5; this.audio && this.audio.enemyVoice('warden', 'attack', e.pos); }
+    if (dist < 8) { this._move(e, dt, -dx / dist * (e.boss ? 2.2 : 1.6), -dz / dist * (e.boss ? 2.2 : 1.6)); moving = 0.6; }
+    else if (e.burst <= 0) { const dir = this._nav(e, dt, e.boss ? pp.x : e.cover.x, e.boss ? pp.z : e.cover.z, e.def.speed, e.boss ? 6 : 1.2); if (dir) moving = 1; }
+    e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), dt * (e.boss ? 2.2 : 1.6));
+    if (see && e.cool <= 0 && Math.abs(dyaw) < 0.55 && (e.charging || 0) <= 0) {
+      e.burst = e.boss ? 8 : 4; e.burstT = 0; e.cool = (e.boss ? 2.2 : 3.2) + Math.random() * 1.2;
+      this.audio && this.audio.enemyVoice(e.boss ? 'boss' : 'warden', 'attack', e.pos);
+    }
     if (e.burst > 0) {
       e.burstT -= dt;
       if (e.burstT <= 0) {
-        e.burst--; e.burstT = 0.16;
-        this.shoot(muzzle, eyeP, 46, 8, 0.045, 0xff5a40);
-        this.fx.light(muzzle, 0xff6a3a, 25, 0.06, 8);
-        this.audio && this.audio.enemyShot('warden', e.pos);
+        e.burst--; e.burstT = e.boss ? 0.12 : 0.16;
+        this.shoot(muzzle, eyeP, e.boss ? 42 : 46, e.boss ? 11 : 8, e.boss ? 0.06 : 0.045, e.boss ? 0xff2a18 : 0xff5a40);
+        this.fx.light(muzzle, 0xff6a3a, e.boss ? 40 : 25, 0.06, 8);
+        this.audio && this.audio.enemyShot(e.boss ? 'boss' : 'warden', e.pos);
         if (e.burst === 0) e.coverT = Math.min(e.coverT, 1.5 + Math.random()); // 打完一轮就换位
       }
     }
