@@ -167,13 +167,13 @@ export class World {
 
   _yard() {
     const r = mulberry(404);
-    // ≥70% 饱和箱蓝/信号红/橙/绿/白，灰与脏棕 ≤20%
-    const palette = ['#1B5EAA', '#C62828', '#E65100', '#2E7D32', '#F3EEE4', '#1565C0', '#D32F2F', '#F9A825', '#6D6458', '#5A4332'];
+    // ≥80% 饱和箱蓝/信号红/橙/绿/白，灰与脏棕是少数。波纹脊的顶点磨损很高，不能再拿它把整面漆洗成灰石头。
+    const palette = ['#1E6FD0', '#D32020', '#F05A12', '#2E9A3A', '#F7F4EE', '#1565C0', '#E53935', '#F9A825', '#6D6458', '#5A4332'];
     const cols = palette.map((c) => new THREE.Color(c));
-    // 近景：干净工业漆（法线减弱）+ 边角磨损；锁杆用更亮的冷金属
-    const paint = pbr('contpaint', { wear: 0.38, wet: 0.55, env: 0.78, normal: 0.22 });
-    const frame = pbr('paint', { wear: 0.45, wet: 0.5, env: 0.7, normal: 0.3, color: 0xd4d0c8 });
-    const steel = pbr('steel', { color: 0xc5d0d8, wear: 0.22, wet: 0.35, env: 0.95, normal: 0.35 });
+    // 板面：干净工业漆，几乎不吃顶点磨损；框和锁杆才露锈和冷金属高光
+    const paint = pbr('contpaint', { wear: 0.04, wet: 0.22, env: 1.05, normal: 0.14, rough: 0.58, metal: 0.08 });
+    const frame = pbr('steel', { color: 0xb4bcc4, wear: 0.62, wearColor: 0x7a3c22, wet: 0.3, env: 1.15, normal: 0.4, rough: 0.5, metal: 0.9 });
+    const steel = pbr('steel', { color: 0xe4ebf1, wear: 0.1, wearColor: 0x8a4528, wet: 0.18, env: 1.35, normal: 0.35, rough: 0.4, metal: 1 });
     const liner = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.95, metalness: 0, envMapIntensity: 0.12 });
     const markMat = new THREE.MeshStandardMaterial({
       map: A.tex.mark, transparent: true, alphaTest: 0.08, depthWrite: false,
@@ -234,7 +234,8 @@ export class World {
       const yaw = r() < 0.5 ? 0 : Math.PI;
       for (let k = 0; k < levels; k++) {
         const ci = Math.floor(r() * cols.length);
-        const c = cols[ci].clone().multiplyScalar(0.94 + r() * 0.08);
+        const weathered = ci >= cols.length - 2;
+        const c = cols[ci].clone().multiplyScalar(weathered ? (0.8 + r() * 0.1) : (1.02 + r() * 0.12));
         const m = new THREE.Matrix4();
         _q.setFromEuler(new THREE.Euler(0, yaw, 0));
         m.compose(_p.set(x, k * 2.591, z), _q, _s.set(1, 1, 1));
@@ -596,10 +597,10 @@ export class World {
     this._hangBanner(2, 58, -17.35, Math.PI, false);
 
     // —— 华晨达装卸角（仓库西门外北侧，不堵卷帘门）
-    const navy = pbr('contpaint', { wear: 0.32, wet: 0.55, env: 0.75, normal: 0.22, color: 0x1a3d5c });
-    const frameN = pbr('steel', { wear: 0.28, wet: 0.4, env: 0.85, normal: 0.35, color: 0xc5d0d8 });
+    const navy = pbr('contpaint', { wear: 0.05, wet: 0.22, env: 1.0, normal: 0.14, rough: 0.58, metal: 0.08, color: 0x1a4e86 });
+    const frameN = pbr('steel', { wear: 0.5, wearColor: 0x7a3c22, wet: 0.28, env: 1.15, normal: 0.4, rough: 0.5, metal: 0.9, color: 0xb4bcc4 });
     const liner = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.95, metalness: 0 });
-    const matC = { M_cont_paint: navy, M_cont_frame: frameN, M_cont_steel: pbr('steel', { color: 0xc5d0d8, wear: 0.22, wet: 0.35, env: 0.95, normal: 0.35 }), M_cont_liner: liner };
+    const matC = { M_cont_paint: navy, M_cont_frame: frameN, M_cont_steel: pbr('steel', { color: 0xe4ebf1, wear: 0.1, wearColor: 0x8a4528, wet: 0.18, env: 1.35, normal: 0.35, rough: 0.4, metal: 1 }), M_cont_liner: liner };
     const placeHcd = (x, z, yaw) => {
       const g = new THREE.Group();
       for (const p of meshParts('containers', 'cont40')) {

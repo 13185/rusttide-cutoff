@@ -52,6 +52,7 @@ export class Game {
     setAssetQuality(this.quality);
     this.mode = 'boot';
     this.fov = 74;
+    this.adsFovCut = 0.18; // 开镜时主视野收窄的比例；窗内另有约 1.55× 放大（weapon.js）
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -93,6 +94,8 @@ export class Game {
     this.enemies.nav = this.nav;
     this.weapon = new Weapon(this.camera, this.world.glowTex);
     this.weapon.scene.environment = this.scene.environment;
+    // 雨丝贴在相机前，塞进几度宽的瞄具窗会变成满窗裂纹。镜内不画雨。
+    this.weapon.scopeHide = [this.rain.mesh];
     this.player = new Player(this.camera, this.world, this.input);
     this.player.onHurt = (n) => { this.audio.hurt(); this.shake = Math.min(1, this.shake + 0.25 + n * 0.01); };
     this.weapon.onShell = () => this.audio.shellIn();
@@ -650,7 +653,7 @@ export class Game {
     const cp = this.camera.position;
     this.sun.target.position.set(cp.x, 0, cp.z); this.sun.position.set(cp.x + this.sunDir.x * 150, this.sunDir.y * 150 + 20, cp.z + this.sunDir.z * 150);
     const adsEase = this.weapon.ads * this.weapon.ads * (3 - 2 * this.weapon.ads);
-    this.camera.fov = damp(this.camera.fov, this.fov * (1 - adsEase * 0.13) + (this.player.sprint ? 3 : 0), 8, dt);
+    this.camera.fov = damp(this.camera.fov, this.fov * (1 - adsEase * this.adsFovCut) + (this.player.sprint ? 3 : 0), 8, dt);
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
