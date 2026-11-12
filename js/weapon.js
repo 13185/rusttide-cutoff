@@ -34,11 +34,12 @@ function sideFlashTexture() {
 const HAND_CFG = {
   rifle: {
     R: { off: [0.016, 0.012, 0.022], finger: [0.02, -0.28, -0.96], dorsal: [1, 0.04, 0], arm: [0.28, -0.48, 1], curl: [[0.12, 0.32, 0.28], [0.72, 0.68, 0.48], [0.78, 0.72, 0.52], [0.72, 0.66, 0.46]], thumb: [0.82, 0.55, 0.55] },
-    L: { off: [-0.02, 0.004, 0.0], finger: [0.75, 0.05, -0.65], dorsal: [-0.4, -0.9, 0], arm: [-0.45, -0.5, 1], curl: [[0.48, 0.58, 0.4], [0.5, 0.6, 0.42], [0.5, 0.6, 0.42], [0.48, 0.58, 0.4]], thumb: [0.25, 0, 0.25] },
+    // 左手托住护木：掌心在护木左下方，指头向上包过去，手背朝向相机，前臂从左下进来
+    L: { off: [-0.048, -0.034, 0.028], finger: [0.22, 0.94, -0.18], dorsal: [-0.48, -0.28, 0.78], arm: [-0.28, -0.88, 0.38], curl: [[0.42, 0.78, 0.62], [0.48, 0.86, 0.66], [0.5, 0.88, 0.68], [0.46, 0.8, 0.6]], thumb: [0.4, 0.2, 0.4] },
   },
   shotgun: {
     R: { off: [0.02, -0.002, 0.002], finger: [0.02, -0.82, -0.55], dorsal: [1, 0.04, 0], arm: [0.28, -0.42, 1], curl: [[0.12, 0.32, 0.28], [0.72, 0.68, 0.48], [0.78, 0.72, 0.52], [0.72, 0.66, 0.46]], thumb: [0.82, 0.55, 0.55] },
-    L: { off: [-0.016, 0.006, 0.0], finger: [0.75, 0.05, -0.65], dorsal: [-0.4, -0.9, 0], arm: [-0.45, -0.5, 1], curl: [[0.48, 0.58, 0.4], [0.5, 0.6, 0.42], [0.5, 0.6, 0.42], [0.48, 0.58, 0.4]], thumb: [0.25, 0, 0.25] },
+    L: { off: [-0.04, -0.02, 0.02], finger: [0.18, 0.9, -0.22], dorsal: [-0.5, -0.22, 0.74], arm: [-0.3, -0.86, 0.36], curl: [[0.4, 0.74, 0.58], [0.46, 0.82, 0.62], [0.48, 0.84, 0.64], [0.44, 0.76, 0.56]], thumb: [0.38, 0.18, 0.38] },
   },
 };
 
@@ -83,8 +84,32 @@ export class Weapon {
     const nail = new THREE.MeshStandardMaterial({ color: 0x6a4a42, roughness: 0.5, metalness: 0 });
     const lens = new THREE.MeshStandardMaterial({ color: 0x6a8a94, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 0.9 });
     const byName = { M_gun_metal: gm, M_gun_dark: dark, M_gun_poly: dark, M_gun_fde: dark, M_glove: skin, M_sleeve: sleeve, M_skin: skin, M_knuckle: knuckle, M_nail: nail, M_lens: lens };
-    // 改装枪身材质：湿冷港口光下偏沉稳——环境反射略收、AO 全开
-    const tuneGun = (m) => { if (!m || m.userData.tuned) return m; m.userData.tuned = true; m.color.multiplyScalar(0.88); if (m.color.r > m.color.b * 1.08) m.color.r *= 0.9; m.metalness = Math.min(0.88, (m.metalness || 0.55) * 1.02); m.roughness = Math.min(0.92, Math.max(0.28, (m.roughness || 0.45) * 0.96)); m.envMapIntensity = 0.72; m.aoMapIntensity = 0.95; if (m.normalScale) m.normalScale.set(1.05, 1.05); return m; };
+    // 枪身金属：贴图里金属度高的区域把粗糙度压低，让定向光打出窄高光；握把等低金属度区域保持哑光
+    const tuneGun = (m) => {
+      if (!m || m.userData.tuned) return m;
+      m.userData.tuned = true;
+      if (m.color && m.color.r > m.color.b * 1.12) m.color.r *= 0.92;
+      m.metalness = 1;
+      m.roughness = 1;
+      m.envMapIntensity = 1.35;
+      m.aoMapIntensity = 0.62;
+      if (m.normalScale) m.normalScale.set(0.9, 0.9);
+      const prev = m.onBeforeCompile;
+      m.onBeforeCompile = (sh, renderer) => {
+        if (prev) prev(sh, renderer);
+        sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+{
+  float met = clamp(metalnessFactor, 0.0, 1.0);
+  float polish = smoothstep(0.28, 0.72, met);
+  // 深色贴图上的金属高光太弱会看成塑料。金属区域略提成冷钢，并把粗糙度压窄。
+  diffuseColor.rgb *= mix(vec3(1.0), vec3(1.45, 1.5, 1.62), polish);
+  roughnessFactor = mix(roughnessFactor * 0.9, roughnessFactor * 0.22, polish);
+}`);
+      };
+      const prevKey = m.customProgramCacheKey ? m.customProgramCacheKey.bind(m) : null;
+      m.customProgramCacheKey = () => 'gun-metal-spec' + (prevKey ? prevKey() : '');
+      return m;
+    };
     this.views = [];
     const ftex = flashTexture(), stex = sideFlashTexture();
     const tmp = new THREE.Vector3();
@@ -135,14 +160,13 @@ export class Weapon {
     for (const v of this.views) this.holder.add(v.g);
     this.holder.add(this.flashLight, this.grenadeMesh);
     this.scene.add(this.holder);
-    // 视角模型灯光：冷色天光为主、暖色只作弱轮廓（避免枪身偏亮偏粉）；注意枪层与世界一起进 HDR 后处理（曝光 ×1.45 + ACES），这里的强度按此折算
+    // 视角模型灯光：冷色主光打出金属窄高光，轮廓和近处补光只把护木/手套从夜里托出来。枪层与世界一起进后期（曝光约 ×1.34 + ACES）
     this.scene.add(new THREE.HemisphereLight(0xb4bec8, 0x3a3530, 1.05));
-    // 视角模型灯光挂在 holder 上：冷色主光 + 轮廓 + 近处补光，让枪身/手套细节可读，避免粉塑料
     const L = (col, int, pos, tgt) => { const l = new THREE.DirectionalLight(col, int); l.position.set(...pos); l.target.position.set(...tgt); this.holder.add(l, l.target); return l; };
-    L(0xe4e8ee, 1.25, [-1.2, 1.9, 1.0], [0.15, -0.15, -0.55]);
-    L(0x9aafc2, 0.85, [1.7, 0.8, -2.0], [0, -0.08, -0.4]);
-    L(0xb8c0c6, 0.42, [0.2, -1.2, 0.8], [0, 0, -0.45]);
-    const fill = new THREE.PointLight(0xc9d2da, 1.15, 2.4, 1.6);
+    L(0xf4f7fb, 1.85, [-0.9, 1.5, 0.35], [0.08, -0.08, -0.48]);
+    L(0xd5e2ee, 0.9, [1.1, 0.35, -0.15], [0.02, -0.06, -0.4]);
+    L(0x9eb4c8, 0.55, [0.2, 0.2, -1.8], [0.04, -0.02, -0.35]);
+    const fill = new THREE.PointLight(0xd5dee6, 1.55, 2.2, 1.5);
     fill.position.set(0.12, 0.08, 0.15); this.holder.add(fill);
     this.gun = this.views[0].g;
   }
@@ -361,7 +385,7 @@ export class Weapon {
     });
     // 袖管 / 前臂收细，袖口不再显得臃肿
     const slim = (root, side) => {
-      for (const [n, k] of [['sleeve', 0.40], ['cuff', 0.40], ['muscle', 0.52], ['flexor', 0.52], ['wrist', 0.58]]) {
+      for (const [n, k] of [['sleeve', 0.62], ['cuff', 0.58], ['muscle', 0.74], ['flexor', 0.72], ['wrist', 0.74]]) {
         const o = root.getObjectByName(n + side);
         if (o) o.scale.set(k, 1, k);
       }
@@ -458,10 +482,9 @@ export class Weapon {
         vec2 p = vUv - 0.5;
         float d = sdRound(p, vec2(0.495, 0.495), 0.07);
         if (d > 0.0) discard;
-        vec3 scene = texture2D(tScope, vUv).rgb * 1.7;
-        scene = max(scene, vec3(0.0));
-        vec3 col = mix(vec3(0.55, 0.66, 0.68), scene, 0.98);
-        col = mix(col * 0.97, col, uFade);
+        vec3 scene = max(texture2D(tScope, vUv).rgb, vec3(0.0)) * 1.15;
+        vec3 col = scene;
+        col = mix(col * 0.92, col, uFade);
         vec2 q = vec2(p.x * 1.30, p.y);
         float r = length(q);
         float ring = smoothstep(0.018, 0.006, abs(r - 0.13));
@@ -471,7 +494,7 @@ export class Weapon {
         col += ret * glow;
         // 玻璃近乎通透，只留一圈微弱边缘
         float edge = 1.0 - smoothstep(-0.02, 0.0, d);
-        float a = mix(0.55, 0.82, uFade) * edge;
+        float a = mix(0.4, 0.98, uFade) * edge;
         gl_FragColor = vec4(col, a);
       }`;
     const unis = { tScope: { value: this.scopeRT.texture }, uFade: { value: 0 } };
@@ -493,24 +516,44 @@ export class Weapon {
   }
 
   setScopeRes(n) { this.scopeRes = n; if (this.scopeRT) this.scopeRT.setSize(n, n); }
+  // 窗内相对窗外的放大倍数。必须按窗口张角来定 FOV：把主相机 FOV 除以 1.4 再塞进几度宽的窗口，画面会缩小而不是放大。
+  static get SCOPE_MAG() { return 1.55; }
   renderScope(renderer, worldScene, camera) {
     const v = this.views && this.views[this.cur];
-    if (!v || !this.scopeRT) return;
+    if (!v || !v.scopeDisc || !this.scopeRT) { this.scopeMag = 1; return; }
     const ads = this.ads;
     const fade = Math.max(0, Math.min(1, (ads - 0.15) / 0.55));
     if (v.scopeFade) v.scopeFade.value = fade;
-    if (v.scopeDisc) v.scopeDisc.visible = true;
+    v.scopeDisc.visible = true;
     if (ads < 0.12) return;
+    v.scopeDisc.updateWorldMatrix(true, false);
+    const center = this._scopeCenter || (this._scopeCenter = new THREE.Vector3());
+    const scale = this._scopeScale || (this._scopeScale = new THREE.Vector3());
+    center.setFromMatrixPosition(v.scopeDisc.matrixWorld);
+    v.scopeDisc.getWorldScale(scale);
+    const dist = Math.max(0.08, center.distanceTo(camera.position));
+    const height = 0.027 * Math.abs(scale.y);
+    const theta = 2 * Math.atan((height * 0.5) / dist) * THREE.MathUtils.RAD2DEG;
+    const mag = Weapon.SCOPE_MAG;
+    this.scopeMag = mag;
     this.scopeCam.position.copy(camera.position);
     this.scopeCam.quaternion.copy(camera.quaternion);
-    this.scopeCam.fov = camera.fov / 1.4;
-    this.scopeCam.aspect = 0.033 / 0.025;
+    this.scopeCam.fov = Math.max(2.2, theta / mag);
+    this.scopeCam.aspect = 0.036 / 0.027;
+    this.scopeCam.near = 0.12;
     this.scopeCam.far = camera.far;
     this.scopeCam.updateProjectionMatrix();
+    const hide = this.scopeHide || [];
+    const was = hide.map((o) => o.visible);
+    for (const o of hide) o.visible = false;
     const prev = renderer.getRenderTarget();
-    renderer.setRenderTarget(this.scopeRT);
-    renderer.clear();
-    renderer.render(worldScene, this.scopeCam);
-    renderer.setRenderTarget(prev);
+    try {
+      renderer.setRenderTarget(this.scopeRT);
+      renderer.clear();
+      renderer.render(worldScene, this.scopeCam);
+    } finally {
+      renderer.setRenderTarget(prev);
+      hide.forEach((o, i) => { o.visible = was[i]; });
+    }
   }
 }
