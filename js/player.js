@@ -29,7 +29,12 @@ export class Player {
     if (!this.alive) return { foot: false };
     const look = this.input.consumeLook();
     const sens = this.input.sensitivity * (1 - ads * 0.45);
-    this.yaw -= look.x * sens; this.pitch -= look.y * sens;
+    // 卡顿时鼠标/触屏位移会堆在一帧里。超过约 29° 就丢掉多余的，避免视角一下子甩过去。
+    let dx = look.x * sens, dy = look.y * sens;
+    const mag = Math.hypot(dx, dy);
+    const cap = 0.5;
+    if (mag > cap) { const s = cap / mag; dx *= s; dy *= s; }
+    this.yaw -= dx; this.pitch -= dy;
     this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch));
     const k = this.input.keys;
     const t = this.input.touch;

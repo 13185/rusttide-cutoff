@@ -949,10 +949,10 @@ export class World {
 
   update(dt, t, camera) {
     this.lodT -= dt;
-    // 站着不动时不再整表重写实例矩阵。走动超过约 2 米或转过约 20° 才重分近景，避免每 0.12 秒卡一帧。
+    // 只在人走开约 2 米时重分近景。转头不改实例缓冲，否则每转大约 20° 就整表上传，画面会跳。
     const cam = camera.position;
     if (!this._lodAt) this._lodAt = new THREE.Vector3(1e9, 1e9, 1e9);
-    const moved = cam.distanceToSquared(this._lodAt) > 4 || Math.abs(camera.rotation.y - (this._lodYaw || 0)) > 0.35;
+    const moved = cam.distanceToSquared(this._lodAt) > 4;
     if (this.lodT <= 0 && moved) {
       this.lodT = 0.4;
       this._lodAt.copy(cam);
