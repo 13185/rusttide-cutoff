@@ -55,6 +55,11 @@ h2 { font-size:34px; margin:8px 0 6px; } h3 { margin:0 0 14px; font-size:20px; c
 #compassMarks span.done { color:var(--dim); } #compassMarks span.done b { background:var(--dim); }
 #compassMarks span.boat b { background:#7ad8ff; } #compassMarks span.boat { color:#9be3ff; }
 #objective { position:absolute; top:22px; left:26px; min-width:200px; }
+#keyPips { display:inline-flex; gap:4px; margin-left:6px; } #keyPips i { font-style:normal; font-size:11px; padding:0 5px; border:1px solid var(--faint); color:var(--dim); }
+#keyPips i.on { color:#14110d; background:var(--amber); border-color:var(--amber); }
+#bossBar { position:absolute; left:50%; top:64px; transform:translateX(-50%); width:min(440px,52vw); text-align:center; text-shadow:var(--sh); z-index:5; }
+#bossBar .lbl { color:var(--alarm); } #bossBar .hp-bar { height:8px; margin-top:4px; background:rgba(0,0,0,.55); border:1px solid rgba(255,80,60,.45); }
+#bossBar i { display:block; height:100%; width:100%; background:#ff3b28; box-shadow:0 0 8px rgba(255,60,40,.7); }
 #objTitle { font-size:20px; font-weight:800; margin:4px 0 6px; }
 .obj-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); }
 #relayBoxes i { display:inline-block; width:11px; height:11px; border:1px solid var(--bone); margin-right:3px; } #relayBoxes i.on { background:var(--amber); border-color:var(--amber); }

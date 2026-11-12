@@ -52,7 +52,28 @@ await page.keyboard.press('KeyF');
 await page.waitForFunction(() => window.__rt.state().flashlight === false, null, { timeout: 8000 }).catch(() => {});
 s = await st();
 ok(s.flashlight === false, 'F toggles flashlight off');
-ok(s.wavesEnabled === false, 'combat waves disabled in atmosphere build');
+ok(s.wavesEnabled === true, 'continuous spawns enabled');
+const diff = await page.evaluate(() => {
+  const g = window.__game;
+  const bosses = g.enemies.list.filter((e) => e.boss && e.alive).map((e) => e.maxHp);
+  const before = g.enemies.alive();
+  g.spawnT = 0;
+  g._director(0.05);
+  const after = g.enemies.alive();
+  const p = g.player;
+  p.position.set(-34, 0, 40.2); p.vel.set(0, 0, 0);
+  g.keys = new Set();
+  g.input.keys.KeyE = true;
+  const cut0 = g.cut;
+  for (let i = 0; i < 90; i++) g._step(0.05);
+  const prompt = document.getElementById('intText').textContent || '';
+  g.input.keys.KeyE = false;
+  g.holdT = 0;
+  return { bosses, before, after, cut: g.cut, cut0, prompt, cap: g.spawnCap() };
+});
+ok(diff.bosses.length === 3 && Math.min(...diff.bosses) >= 1200, 'three bosses with substantial HP ' + diff.bosses.join(','));
+ok(diff.after > diff.before, 'spawner keeps producing monsters (' + diff.before + ' -> ' + diff.after + ', cap ' + diff.cap + ')');
+ok(diff.cut === diff.cut0 && diff.prompt.includes('钥匙'), 'relay cannot be cut without key: ' + diff.prompt);
 
 await page.evaluate(() => { window.__game.enemies.clear(); });
 await page.evaluate(() => {
@@ -234,7 +255,7 @@ await page.waitForTimeout(900);
 await shot('04-combat');
 await page.evaluate(() => { const i = window.__game.input; i.fireHeld = false; });
 
-await page.evaluate(() => window.__game.enemies.clear());
+await page.evaluate(() => { const g = window.__game; g.enemies.clear(); g.keys = new Set([0, 1, 2]); });
 await tp(-34, 40.2); await face(-34, 38, -0.12);
 await page.waitForTimeout(300);
 ok(await page.locator('#interact').isVisible(), 'interact prompt near relay A');
@@ -251,7 +272,7 @@ s = await st(); ok(s.cut === 1, 'releasing E early does not cut');
 await page.keyboard.down('KeyE'); await page.waitForFunction(() => { const g = window.__game; if (g.mode === 'play' && g.cut < 2) g._step(0.05); return g.cut === 2; }, null, { timeout: 30000 }).catch(() => {}); await page.keyboard.up('KeyE');
 s = await st(); ok(s.cut === 2, 'relay B cut');
 await page.waitForTimeout(800);
-s = await st(); ok(s.enemies === 0, 'no combat-wave reinforcements after cut (enemies=' + s.enemies + ')');
+s = await st(); ok(s.wavesEnabled === true, 'spawner still armed after a relay cut (alive ' + s.enemies + ')');
 await tp(-30, -47.8); await face(-30, -50);
 await page.keyboard.down('KeyE'); await page.waitForFunction(() => { const g = window.__game; if (g.mode === 'play' && g.cut < 3) g._step(0.05); return g.cut === 3; }, null, { timeout: 30000 }).catch(() => {}); await page.keyboard.up('KeyE');
 s = await st(); ok(s.cut === 3, 'relay C cut, objective -> boat');

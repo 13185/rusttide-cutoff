@@ -24,7 +24,9 @@
       <div class="lbl">任务目标</div>
       <div id="objTitle">关闭三座异常中继</div>
       <div class="obj-row"><span class="lbl2">中继</span><span id="relayBoxes"><i></i><i></i><i></i></span><span id="relayCount">0/3</span></div>
+      <div class="obj-row"><span class="lbl2">钥匙卡</span><span id="keyPips"><i>A</i><i>B</i><i>C</i></span></div>
     </div>
+    <div id="bossBar" class="hidden"><div class="lbl" id="bossName">巡夜者</div><div class="hp-bar"><i id="bossFill"></i></div></div>
     <div id="caption" class="hidden"><div class="cap-main">乍浦港区 · <span id="capClock">05:18</span></div><div class="cap-sub">潮汐行动组 · 最后调查 · 港区失联</div></div>
     <div id="health"><div class="lbl">生命体征</div><div class="hp-row"><div class="hp-bar"><i id="hpFill"></i></div><b id="hpNum">100</b></div><div id="regenTip" class="hidden">掩体内 · 加速恢复</div></div>
     <div id="ammo"><div class="ammo-row"><b id="ammoNum">30</b><span class="slash">/</span><span id="reserveNum">150</span></div><div class="mag-ticks" id="magTicks"></div><div id="weapName">1 · 潮汐-7 突击步枪</div><div id="gren">手雷 ×2</div><div id="reloadTip" class="hidden">换弹中</div><div id="lowTip" class="hidden">按 R 换弹</div></div>
@@ -44,19 +46,19 @@
       <h1 class="title-big">锈潮断链</h1>
       <div class="title-sub">午夜禁区</div>
       <div class="rule"></div>
-      <p class="pitch">乍浦港区突然失联，工作人员失踪。你是最后一名调查人员，关闭三座异常中继，查明原因。</p>
+      <p class="pitch">乍浦港区突然失联，工作人员失踪。三座中继各有一只发光的巡夜者看守。打死它、捡起钥匙卡，才能切断机器，再登上撤离艇。</p>
       <div class="btns"><button id="btnStart" class="btn primary">开始调查</button><button class="btn" data-open="settings">设置</button><button class="btn" data-open="help">操作说明</button><button class="btn" data-open="about">关于</button></div>
       <p class="credit">作者：Jack · © Jack 版权所有 · 禁止任何形式转载 · 玩法受《Saltline》（Felix Rieseberg）启发；除署名的第三方枪械模型外，代码与素材为原创。两款 CC BY 4.0 枪模不受「禁止转载」约束，详见关于与 NOTICE</p>
     </div>
     <div class="keys">
       <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</div><div><kbd>鼠标</kbd> 视角</div><div><kbd>左键</kbd> 开火</div><div><kbd>右键</kbd> 按住瞄准</div><div><kbd>R</kbd> 换弹</div>
       <div><kbd>Q</kbd> 切枪<span class="dim">（1 / 2 / 滚轮亦可）</span></div><div><kbd>F</kbd> 手电筒</div><div><kbd>G</kbd> 手雷</div><div><kbd>V</kbd> 近战</div>
-      <div><kbd>E</kbd> 关闭中继</div><div><kbd>SPACE</kbd> 跳跃</div><div><kbd>SHIFT</kbd> 冲刺</div><div><kbd>C</kbd>/<kbd>CTRL</kbd> 蹲伏</div><div><kbd>ESC</kbd> 暂停</div>
+      <div><kbd>E</kbd> 持钥匙卡切断中继</div><div><kbd>SPACE</kbd> 跳跃</div><div><kbd>SHIFT</kbd> 冲刺</div><div><kbd>C</kbd>/<kbd>CTRL</kbd> 蹲伏</div><div><kbd>ESC</kbd> 暂停</div>
     </div>
     <div class="tkeys">
       <div><kbd>左下</kbd> 按住拖动走路，推到底向前＝冲刺</div><div><kbd>右半屏</kbd> 划动转视角</div>
       <div><kbd>开火</kbd> 按住射击，按着也能拖动瞄准</div><div><kbd>瞄准</kbd> 点按开镜（设置可改长按）</div>
-      <div><kbd>手电</kbd> 点按开关</div><div><kbd>靠近中继</kbd> 屏幕下方按住切断</div>
+      <div><kbd>手电</kbd> 点按开关</div><div><kbd>靠近中继</kbd> 有钥匙卡时屏幕下方按住切断</div>
       <div class="dim">横屏游玩 · 建议戴耳机 · 设置里可换「三指」布局、调灵敏度与陀螺仪</div>
     </div>
   </div>
@@ -111,7 +113,7 @@
   </template>
   <template id="tpl-help">
     <h3>操作说明</h3>
-    <p>WASD 移动 · 鼠标视角 · 左键开火 · <b>按住右键瞄准</b> · R 换弹 · <b>Q 切换步枪与霰弹枪</b>（1 / 2 或滚轮亦可） · <b>F 手电筒</b> · G 投掷手雷 · V 枪托近战 · E 按住关闭中继 · 空格跳跃 · Shift 冲刺 · C / Ctrl 蹲伏 · Esc 暂停。</p>
+    <p>WASD 移动 · 鼠标视角 · 左键开火 · <b>按住右键瞄准</b> · R 换弹 · <b>Q 切换步枪与霰弹枪</b>（1 / 2 或滚轮亦可） · <b>F 手电筒</b> · G 投掷手雷 · V 枪托近战 · E 持中继钥匙卡按住切断中继 · 空格跳跃 · Shift 冲刺 · C / Ctrl 蹲伏 · Esc 暂停。</p>
     <p><b>手机 / 平板（触屏，横屏）：</b>左下按住拖动走路，推过外圈约八成并朝前才冲刺 · 右半屏划动转视角 · 右下「开火」按住射击，按着可拖动瞄准 · 「瞄准」点按开镜（设置可改长按）· 「换弹」「换枪」「跳」「雷」· 左侧「蹲」切换、「手电」点按开关 · 靠近中继时屏幕下方出现按钮，按住 3.5 秒切断 · 左上 ❚❚ 暂停。设置里可换「三指」布局（左上开火）、按钮大小与透明度、灵敏度、陀螺仪与轻度辅助瞄准。</p>
     <p>武器：潮汐-7 突击步枪（全自动、精准）；港务-12 泵动霰弹枪（9 颗弹丸、近距离毁伤极高、逐发装填可随时开火打断）；手雷（2.2 秒引信，可在墙面弹跳）。弹药箱会同时补充两把枪的备弹并补 1 枚手雷。</p>
     <p>任务：关闭甲（西堆场）、乙（东仓库）、丙（一号岸桥下）三座异常中继（顶部罗盘标记），全部关闭后前往码头撤离艇登船。本版为「午夜禁区」氛围版，常规机械敌军波次已关闭；手电能照路，关闭后仍有极弱环境光可慢走认路。</p>

@@ -128,15 +128,15 @@ async function mobileRun(name, dev, shots) {
 
   // 中继：靠近出现情境按钮，按住切断
   await page.waitForTimeout(2600);
-  await page.evaluate(() => { const g = window.__game; g.enemies.clear(); const p = g.player; p.position.set(-34, 0, 40.2); p.vel.set(0, 0, 0); p.yaw = Math.atan2(0, 2.2); p.pitch = -0.12; });
+  await page.evaluate(() => { const g = window.__game; g.enemies.clear(); g.keys.add(0); const p = g.player; p.position.set(-34, 0, 40.2); p.vel.set(0, 0, 0); p.yaw = Math.atan2(0, 2.2); p.pitch = -0.12; });
   await page.evaluate(() => { window.__game.flashOn = true; });
   await page.waitForFunction(() => !document.getElementById('tCtx').classList.contains('hidden'), null, { timeout: 10000 }).catch(() => {});
   ok(await page.locator('#tCtx').isVisible(), name + ': context button appears near relay');
   const cc = await center('#tCtx');
   await T('touchStart', [cc]);
-  await page.waitForFunction(() => window.__game.holdT > 1.6, null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => { const g = window.__game; if (g.mode === 'play' && g.cut < 1 && g.holdT < 3.5) g._step(0.05); return g.holdT > 1.6 || g.cut >= 1; }, null, { timeout: 30000 }).catch(() => {});
   await shot('mobile-relay-hold');
-  await page.waitForFunction(() => window.__rt.state().cut === 1, null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => { const g = window.__game; if (g.mode === 'play' && g.cut < 1) g._step(0.05); return g.cut === 1; }, null, { timeout: 30000 }).catch(() => {});
   await T('touchEnd', []);
   s = await st(); ok(s.cut === 1, name + ': holding context button cuts relay (cut=' + s.cut + ')');
   await page.waitForTimeout(300);

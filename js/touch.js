@@ -228,7 +228,7 @@ export class TouchControls {
     else {
       ctx.classList.remove('hidden');
       const id = g.world.relays[near].id;
-      $('tCtxText').textContent = g.holdT > 0 ? '正在切断 ' + id + ' 号中继…' : '按住 · 切断中继 ' + id;
+      $('tCtxText').textContent = g.relayPrompt || (g.holdT > 0 ? '正在切断 ' + id + ' 号中继…' : '按住 · 切断中继 ' + id);
       $('tCtxRing').style.strokeDashoffset = 119.4 * (1 - Math.min(1, g.holdT / 3.5));
     }
     this._assist(dt);
